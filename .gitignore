@@ -53,3 +53,8 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+isa.md
+
+# Generados por flex, bison y make
+build/
