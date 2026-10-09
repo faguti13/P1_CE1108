@@ -1,0 +1,5 @@
+$ minimo.oly - El programa mas pequeno con salida observable.
+ent x = 7;
+vacio def main() {
+    x = x * 6;
+}
