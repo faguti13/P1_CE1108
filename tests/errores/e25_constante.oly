@@ -1,0 +1,4 @@
+$ ESPERA: {ERROR 25}
+ent a = 1;
+ent b = 2;
+llamar feistel_cifrar(a, b, 7);

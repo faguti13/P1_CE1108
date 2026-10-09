@@ -1,0 +1,2 @@
+$ ESPERA: {ERROR 10}
+vacio def main() { x = 5; }
