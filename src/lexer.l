@@ -51,6 +51,8 @@ static void limpiar_valor(void)
     yylval.texto = NULL;
     yylval.entero = 0;
     yylval.nodo = NULL;
+    yylval.linea = yylineno;
+    yylval.col = yycol_token;
 }
 
 static int devolver(int token)
@@ -64,6 +66,8 @@ static int devolver_texto(int token)
     yylval.texto = strdup(yytext);
     yylval.entero = 0;
     yylval.nodo = NULL;
+    yylval.linea = yylineno;
+    yylval.col = yycol_token;
     return token;
 }
 
@@ -206,6 +210,7 @@ static void error_lexico(const char *mensaje)
     /* 7. Identificadores, literales, delimitadores y enteros.            */
     /*    El identificador no empieza con digito. El lenguaje distingue   */
     /*    mayusculas: Ent no es ent.                                      */
+    /*    Literales enteros: decimales y hexadecimales (0x...).            */
     /*    TODO: literales reales, secuencias de escape y cadenas de       */
     /*    varias lineas.                                                  */
     /* ------------------------------------------------------------------ */
@@ -226,19 +231,21 @@ static void error_lexico(const char *mensaje)
                     return devolver_texto(TK_ERROR);
                 }
 
-[0-9]+          {
+0[xX][0-9A-Fa-f]+|[0-9]+   {
                     char *fin = NULL;
-                    long valor;
+                    unsigned long valor;
 
                     marcar();
                     errno = 0;
-                    valor = strtol(yytext, &fin, 10);
-                    if (errno == ERANGE) {
-                        error_lexico("entero fuera de rango");
+                    valor = strtoul(yytext, &fin, 0);
+                    if (errno == ERANGE || valor > 0xFFFFFFFFUL) {
+                        error_lexico("entero fuera de rango (32 bits)");
                     }
                     yylval.texto = strdup(yytext);
-                    yylval.entero = valor;
+                    yylval.entero = (long)valor;
                     yylval.nodo = NULL;
+                    yylval.linea = yylineno;
+                    yylval.col = yycol_token;
                     return TK_ENTERO;
                 }
 

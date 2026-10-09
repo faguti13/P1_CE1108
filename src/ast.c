@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "comun.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +14,27 @@ Nodo *nodo_nuevo(TipoNodo tipo, const char *texto)
         return NULL;
     }
     nodo->tipo = tipo;
+    nodo->linea = yylineno;
+    nodo->col = yycol_token;
     if (texto) {
         nodo->texto = strdup(texto);
     }
     return nodo;
+}
+
+Nodo *nodo_en(TipoNodo tipo, const char *texto, int linea, int col)
+{
+    Nodo *nodo = nodo_nuevo(tipo, texto);
+    if (nodo) {
+        nodo->linea = linea;
+        nodo->col = col;
+    }
+    return nodo;
+}
+
+Nodo *nodo_vacio(const char *etiqueta)
+{
+    return nodo_nuevo(NODO_LISTA, etiqueta);
 }
 
 Nodo *nodo_enlazar(Nodo *lista, Nodo *elem)
@@ -139,6 +157,10 @@ static const char *nombre_nodo(TipoNodo tipo)
     case NODO_EXP:          return "Exp";
     case NODO_IDENT:        return "Ident";
     case NODO_LITERAL:      return "Literal";
+    case NODO_PARA:         return "Para";
+    case NODO_INDICE:       return "Indice";
+    case NODO_LISTA_LIT:    return "ListaLiteral";
+    case NODO_DECL_LISTA:   return "DeclaracionLista";
     }
     return "Nodo";
 }
@@ -218,6 +240,17 @@ void nodo_imprimir(const Nodo *nodo, int nivel)
     case NODO_ASIGNACION:
         imprimir_rol("destino", hijo_en(nodo, 0), nivel + 2);
         imprimir_rol("valor", hijo_en(nodo, 1), nivel + 2);
+        return;
+    case NODO_PARA:
+        imprimir_rol("inicio", hijo_en(nodo, 0), nivel + 2);
+        imprimir_rol("condicion", hijo_en(nodo, 1), nivel + 2);
+        imprimir_rol("actualizacion", hijo_en(nodo, 2), nivel + 2);
+        imprimir_rol("cuerpo", hijo_en(nodo, 3), nivel + 2);
+        return;
+    case NODO_DECL_LISTA:
+        imprimir_rol("tipo", hijo_en(nodo, 0), nivel + 2);
+        imprimir_rol("dimensiones", hijo_en(nodo, 1), nivel + 2);
+        imprimir_rol("valor", hijo_en(nodo, 2), nivel + 2);
         return;
     default:
         break;
