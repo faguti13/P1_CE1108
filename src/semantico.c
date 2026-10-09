@@ -105,8 +105,6 @@ static int n_hijos(const Nodo *n)
     return k;
 }
 /*Stubs temporales para compilacion*/
-static int tipo_de_nodo(const Nodo *t);
-static int compatibles(int a, int b);
 static Simbolo *buscar_intrinseca(const char *n);
 static void registrar_funcion(Nodo *f);
 static void analizar_funcion(Nodo *f);
@@ -219,6 +217,38 @@ static void asignar(Simbolo *s, long bytes)
     }
 }
 
+/* ---------------- Tipos ---------------- */
+
+/*Obtiene el tipo semantico correspondiente a un nodo
+ que representa una declaracion de tipo
+ Los tipos definidos fueron:ent,bool,list ent y list bool.
+*/
+
+static int tipo_de_nodo(const Nodo *t)
+{
+    const char *x = t->texto ? t->texto : "";
+
+    if (!strcmp(x, "ent")) return TY_ENT;
+    if (!strcmp(x, "bool")) return TY_BOOL;
+    if (!strcmp(x, "vacio")) return TY_VACIO;
+    if (!strcmp(x, "list")) {
+        const Nodo *e = t->hijo;
+        if (e && e->texto && !strcmp(e->texto, "ent")) return TY_LISTA_ENT;
+        if (e && e->texto && !strcmp(e->texto, "bool")) return TY_LISTA_BOOL;
+        error(t, 14, "lista de '%s' no soportada (solo list ent y list bool)", e && e->texto ? e->texto : "?");
+        return TY_ERR;
+    }
+    error(t, 14, "tipo '%s' no soportado en esta version (solo ent, bool y listas)", x);
+    return TY_ERR;
+}
+
+/*Se comprueba si dos tipos se consideran compatibles
+ TY_ERR es compatible con todos para evitar cadenas de errores secundarios por un error semantico
+*/
+static int compatibles(int a, int b)
+{
+    return a == TY_ERR || b == TY_ERR || a == b;
+}
 /* ---------------- Constantes ---------------- */
 
 /*Evalua una expresion constante entera durante el analisis semantico
@@ -260,6 +290,172 @@ int sem_const(const Nodo *n, long *v)
         }
     }
     return 0;
+}
+
+
+/* ---------------- Expresiones ---------------- */
+
+static int expr(Nodo *n); /*Analiza una expresion y retorna su tipo semantico*/
+static int llamada(Nodo *n, int es_valor); /*Analiza una llamada a funcion o funcion intrinseca*/
+
+/*Analiza el acceso a un elemento de una lista.
+  Se verifica que:
+             - la variable exista
+             - sea realmente una lista
+             -los indices sean enteros
+             - la cant de indices coincida con las dimensiones */
+static int expr_indice(Nodo *n)
+{
+    Simbolo *s = buscar_var(n->texto);
+    int k = n_hijos(n);
+    Nodo *h;
+
+    n->ty = TY_ERR;
+    /*Comprueba que la variabl exista*/
+    if (!s) {
+        if (buscar_func(n->texto)) {
+            error(n, 24, "'%s' es una funcion, no una lista", n->texto);
+        } else {
+            error(n, 10, "'%s' no esta declarado", n->texto);
+        }
+        /*Analiza los indices para detectar posibles errores (auqnue la variable no exista)*/
+        for (h = n->hijo; h; h = h->sig) {
+            expr(h);
+        }
+        return TY_ERR;
+    }
+    n->sim = s;
+    /*Todos los indices deben ser enteros*/
+    for (h = n->hijo; h; h = h->sig) {
+        int t = expr(h);
+        if (!compatibles(t, TY_ENT)) {
+            error(h, 17, "el indice debe ser ent, no %s", ty_nombre(t));
+        }
+    }
+    /*Se revisa que el simbolo corresponda a una lista*/
+    if (!es_lista(s->ty)) {
+        error(n, 17, "'%s' no es una lista (tipo %s)", n->texto, ty_nombre(s->ty));
+        return TY_ERR;
+    }
+    /*Comprueba que se utiliza la cant. correcta de indices*/
+    if (s->ndim > 0 && k != s->ndim) {
+        error(n, 17, "'%s' tiene %d dimension(es) y se indexa con %d", n->texto, s->ndim, k);
+        return TY_ERR;
+    }
+    /*Resultado de indexar una lista es el tipo de sus elementos*/
+    n->ty = elem_de(s->ty);
+    return n->ty;
+}
+/*Analiza una expr del AST y determina su tipo
+  El tipo se guarda en n->ty para usarlo en otras partes del A.Sem
+*/
+static int expr(Nodo *n)
+{
+    int a, b;
+    const char *op;
+
+    if (!n) {
+        return TY_ERR;
+    }
+    switch (n->tipo) {
+        /* ---------------- Literales ---------------- */
+    case NODO_LITERAL:
+        /*Literales verdadero y falso son del tipo bool*/
+        if (!strcmp(n->texto, "verdadero") || !strcmp(n->texto, "falso")) {
+            n->val = !strcmp(n->texto, "verdadero");
+            return n->ty = TY_BOOL;
+        }
+        /*Si se comienza con un digito se considera entero*/
+        if (n->texto[0] >= '0' && n->texto[0] <= '9') {
+            return n->ty = TY_ENT;
+        }
+        /*Tipos de literales no soportados*/
+        error(n, 14, "literal %s no soportado (cadenas y caracteres quedan fuera de esta version)", n->texto);
+        return n->ty = TY_ERR;
+
+        /* ---------------- Identificadores ---------------- */
+    case NODO_IDENT: {
+        Simbolo *s = buscar_var(n->texto);
+        /* Busca el identificador en la tabla se simbolos.
+           Si no esta como variable, se revisa si es el nombre de una funcion
+        */
+        if (!s) {
+            if (buscar_func(n->texto)) {
+                error(n, 24, "'%s' es una funcion; se invoca con llamar", n->texto);
+            } else {
+                error(n, 10, "'%s' no esta declarado", n->texto);
+            }
+            return n->ty = TY_ERR;
+        }
+        /*Se relaciona el nodo del AST con su simbolo*/
+        n->sim = s;
+        /*Retorno:Tipo de expr igual al tipo del simbolo*/
+        return n->ty = s->ty;
+    }
+    /*Acceso a lista*/
+    case NODO_INDICE:
+        return expr_indice(n);
+    /*Llamada a funciones*/
+    case NODO_LLAMADA:
+        return n->ty = llamada(n, 1);
+    /*Operadores*/
+    case NODO_EXP:
+        op = n->texto;
+        /*OL:NOT*/
+        if (!strcmp(op, "!")) {
+            a = expr(n->hijo);
+            /*Solo se aplica a un expr de tipo bool*/
+            if (!compatibles(a, TY_BOOL)) {
+                error(n, 12, "'!' espera bool, no %s", ty_nombre(a));
+            }
+            return n->ty = TY_BOOL;
+        }/*Menos unario*/
+        if (!strcmp(op, "neg")) {
+            a = expr(n->hijo);
+            /*Solo se acepta enteros*/
+            if (!compatibles(a, TY_ENT)) {
+                error(n, 12, "el menos unario espera ent, no %s", ty_nombre(a));
+            }
+            return n->ty = TY_ENT;
+        }
+        /*Para operadores bianrios se analizan los dos operandos*/
+        a = expr(n->hijo);
+        b = expr(hijo_n(n, 1));
+        /*Operadores logicos AND Y OR*/
+        if (!strcmp(op, "&&") || !strcmp(op, "||")) {
+            if (!compatibles(a, TY_BOOL) || !compatibles(b, TY_BOOL)) {
+                error(n, 12, "'%s' espera bool y bool, no %s y %s", op, ty_nombre(a), ty_nombre(b));
+            }
+            return n->ty = TY_BOOL;
+        }
+        /*Operadores de igualdad
+         No se pueden comparar lista ni valores vacios
+        */
+        if (!strcmp(op, "==") || !strcmp(op, "!=")) {
+            if (!compatibles(a, b) || es_lista(a) || a == TY_VACIO) {
+                error(n, 12, "'%s' no compara %s con %s", op, ty_nombre(a), ty_nombre(b));
+            }
+            return n->ty = TY_BOOL;
+        }
+        /*Operadores relaciona.Solo entre valores enteros*/
+        if (!strcmp(op, "<") || !strcmp(op, ">") || !strcmp(op, "<=") || !strcmp(op, ">=")) {
+            if (!compatibles(a, TY_ENT) || !compatibles(b, TY_ENT)) {
+                error(n, 12, "'%s' espera ent y ent, no %s y %s", op, ty_nombre(a), ty_nombre(b));
+            }
+            return n->ty = TY_BOOL;
+        }
+        /*Si no es ninguno de los pasados, ent es una op aritmetica
+          Estas solo trabajan con enteros.
+        */
+        if (!compatibles(a, TY_ENT) || !compatibles(b, TY_ENT)) {
+            error(n, 12, "'%s' espera ent y ent, no %s y %s", op, ty_nombre(a), ty_nombre(b));
+        }
+        return n->ty = TY_ENT;
+    default:
+        /*Caso:El nodo no representa una expr valida*/
+        error(n, 18, "expresion no valida en este punto");
+        return n->ty = TY_ERR;
+    }
 }
 
 /*Ejecuta el analisis semantico del programa
@@ -361,8 +557,6 @@ void sem_imprimir_tabla(FILE *f)
 }
 
 /*Stubs temporales para compilacion*/
-static int tipo_de_nodo(const Nodo *t) { (void)t; return TY_ERR; }
-static int compatibles(int a, int b) { (void)a; (void)b; return 0; }
 static Simbolo *buscar_intrinseca(const char *n) { (void)n; return NULL; }
 static void registrar_funcion(Nodo *f) { (void)f; }
 static void analizar_funcion(Nodo *f) { (void)f; }
