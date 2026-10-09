@@ -29,19 +29,31 @@ typedef enum TipoNodo {
     NODO_ASIGNACION,
     NODO_EXP,
     NODO_IDENT,
-    NODO_LITERAL
+    NODO_LITERAL,
+    NODO_PARA,
+    NODO_INDICE,
+    NODO_LISTA_LIT,
+    NODO_DECL_LISTA
 } TipoNodo;
+
+struct Simbolo;
 
 typedef struct Nodo {
     TipoNodo tipo;
     char *texto;
     struct Nodo *hijo;   /* primer hijo */
     struct Nodo *sig;    /* siguiente hermano */
+    int linea, col;      /* posicion en el fuente */
+    int ty;              /* tipo de la expresion (lo llena la fase semantica) */
+    struct Simbolo *sim; /* simbolo asociado (identificadores, funciones, declaraciones) */
+    long val;            /* valor de un literal entero o booleano */
 } Nodo;
 
 extern Nodo *ast_raiz;
 
 Nodo *nodo_nuevo(TipoNodo tipo, const char *texto);
+Nodo *nodo_en(TipoNodo tipo, const char *texto, int linea, int col);
+Nodo *nodo_vacio(const char *etiqueta);   /* lista vacia, para conservar posiciones de hijos */
 Nodo *nodo_enlazar(Nodo *lista, Nodo *elem);
 void nodo_hijo(Nodo *padre, Nodo *hijo);
 void nodo_hijos_cadena(Nodo *padre, Nodo *cadena);
