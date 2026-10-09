@@ -1,0 +1,47 @@
+$ mergesort.oly - Ordenamiento por mezcla recursivo con listas globales de tamano
+$ fijo (las listas locales exigen un tamano constante en esta version).
+
+list ent datos = [38, 27, 43, 3, 9, 82, 10, 1];
+list ent tmp[8];
+
+vacio def fusionar(ent lo, ent mid, ent hi) {
+    ent i = lo;
+    ent j = mid + 1;
+    ent k = lo;
+    mientras (i <= mid && j <= hi) {
+        si (datos[i] <= datos[j]) {
+            tmp[k] = datos[i];
+            i += 1;
+        } sino {
+            tmp[k] = datos[j];
+            j += 1;
+        }
+        k += 1;
+    }
+    mientras (i <= mid) {
+        tmp[k] = datos[i];
+        i += 1;
+        k += 1;
+    }
+    mientras (j <= hi) {
+        tmp[k] = datos[j];
+        j += 1;
+        k += 1;
+    }
+    para (ent t = lo; t <= hi; t += 1) {
+        datos[t] = tmp[t];
+    }
+}
+
+vacio def ordenar(ent lo, ent hi) {
+    si (lo < hi) {
+        ent mid = (lo + hi) / 2;
+        llamar ordenar(lo, mid);
+        llamar ordenar(mid + 1, hi);
+        llamar fusionar(lo, mid, hi);
+    }
+}
+
+vacio def main() {
+    llamar ordenar(0, 7);
+}
