@@ -1,0 +1,3 @@
+$ ESPERA: {ERROR 17}
+ent x = 1;
+ent y = x[0];
