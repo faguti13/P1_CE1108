@@ -106,9 +106,6 @@ static int n_hijos(const Nodo *n)
 }
 /*Stubs temporales para compilacion*/
 static Simbolo *buscar_intrinseca(const char *n);
-static void registrar_funcion(Nodo *f);
-static void analizar_funcion(Nodo *f);
-static void sentencia(Nodo *n);
 static int llamada(Nodo *n, int es_valor);
 /* ---------------- Tabla de Simbolos ---------------- */
 
@@ -457,7 +454,411 @@ static int expr(Nodo *n)
         return n->ty = TY_ERR;
     }
 }
+/* ---------------- Sentencias ---------------- */
 
+static void sentencia(Nodo *n); 
+
+/*Analiza la condicion de una estructura de control
+ Se requiere que las condiciones de si,para y mientras deben ser booleanas
+*/
+static void condicion(Nodo *c)
+{
+    int t = expr(c);
+    if (!compatibles(t, TY_BOOL)) {
+        error(c, 21, "la condicion debe ser bool, no %s", ty_nombre(t));
+    }
+}
+
+/*Analiza declaracion de variable escalar*/
+static void declarar_escalar(Nodo *n)
+{
+    Nodo *tn = hijo_n(n, 0);
+    Nodo *ini = hijo_n(n, 1);
+    int ty = tipo_de_nodo(tn);
+    Simbolo *s;
+
+    /*Las listas no siguen esta forma.Cuentan con un propio*/
+    if (es_lista(ty)) {
+        error(n, 12, "'%s' es una lista: se declara con tamano o con [..]", n->texto);
+        ty = TY_ERR;
+    }
+    /*Si hay inicializados se comprueba el tipo*/
+    if (ini) {
+        int t = expr(ini);
+        if (!compatibles(t, ty)) {
+            error(ini, 12, "no se puede inicializar %s '%s' con %s", ty_nombre(ty), n->texto, ty_nombre(t));
+        }
+    }
+    /*No se puede redeclarar un simbolo en el mismo ambito.(Tampoco se pueden usar nombres reservados de funciones)*/
+    if (declarada_en_nivel(n->texto) || buscar_func(n->texto) || buscar_intrinseca(n->texto)) {
+        error(n, 11, "'%s' ya esta declarado", n->texto);
+        return;
+    }
+    /*Se crea el simbolo de la variable*/
+    s = nuevo_simbolo(n->texto, CL_VAR, n);
+    s->ty = ty;
+    asignar(s, 4);
+    n->sim = s;
+    apilar(s);
+}
+
+/*Determina forma de un literal de lista
+-Calcula dimensiones y verifica elementos con tipo correcto,
+ que no se mezclen sublistas y escalares,filas del mismo tamano
+ que no haya mas de dos dimensiones*/
+static int forma_lista(Nodo *lit, int elem_ty, long *filas, long *cols)
+{
+    Nodo *h;
+    int sublistas = 0, escalares = 0;
+    long n = 0, w = -1;
+
+    for (h = lit->hijo; h; h = h->sig) {
+        n++;
+        /*Si el elemento es otra lista, se trata como una posible segunda dimension*/
+        if (h->tipo == NODO_LISTA_LIT) {
+            long f2, c2;
+            sublistas++;
+            if (!forma_lista(h, elem_ty, &f2, &c2)) {
+                return 0;
+            }
+            /*No se permiten mas de dos dimensiones*/
+            if (c2 != 0) {
+                error(h, 23, "las listas admiten a lo sumo 2 dimensiones");
+                return 0;
+            }
+            /*Todas las filas deben tener la misma cant de elementos*/
+            if (w >= 0 && w != f2) {
+                error(h, 23, "las filas de la lista tienen distinta longitud (%ld y %ld)", w, f2);
+                return 0;
+            }
+            w = f2;
+        } else {
+            /*El elemento debe tener el tipo esperado*/
+            int t = expr(h);
+            escalares++;
+            if (!compatibles(t, elem_ty)) {
+                error(h, 12, "elemento %s en una lista de %s", ty_nombre(t), ty_nombre(elem_ty));
+            }
+        }
+    }
+    /*Una lista no puede mezclar elementos individuales con sublistas*/
+    if (sublistas && escalares) {
+        error(lit, 23, "no se pueden mezclar elementos y sublistas");
+        return 0;
+    }
+    /*Si contiene sublistas, es una lista de 2 dimensiones
+     Si solo tiene elementos, es de 1 dimension
+    */
+    if (sublistas) {
+        *filas = n;
+        *cols = w;
+    } else {
+        *filas = n;
+        *cols = 0;
+    }
+    return 1;
+}
+
+/*Se analiza la declaracion de una lista
+ Se obtiene tipo, dimensiones y literal para inicializarla(si existe)
+ Crea luego el simbolo y reserva el espacio correspondiente en memoria.
+*/
+static void declarar_lista(Nodo *n)
+{
+    Nodo *tn = hijo_n(n, 0);
+    Nodo *dims = hijo_n(n, 1);
+    Nodo *val = hijo_n(n, 2);
+    int ty = tipo_de_nodo(tn);
+    Simbolo *s;
+    long d[2] = {0, 0};
+    int nd = 0;
+    long bytes;
+    /*Verifica que el tipo declarado corresponda a una lista*/
+    if (!es_lista(ty) && ty != TY_ERR) {
+        error(n, 12, "'%s' tiene tipo %s: solo una lista admite tamano o [..]", n->texto, ty_nombre(ty));
+        ty = TY_ERR;
+    }
+    /*  Si hay una literal se calcula forma y se cormpueba tipo de sus elementos*/
+    if (val && val->tipo == NODO_LISTA_LIT) {
+        long f, c;
+        if (ty != TY_ERR && forma_lista(val, elem_de(ty), &f, &c)) {
+            /*No se permiten listas literales vacias*/
+            if (f == 0) {
+                error(val, 16, "una lista literal no puede estar vacia");
+            }
+            /*Limite del tamano de las listas literales*/
+            if (f * (c > 0 ? c : 1) > 2000) {
+                error(val, 16, "una lista literal admite a lo sumo 2000 elementos");
+            }
+            /*Calcular dimensiones detectadas*/
+            if (c > 0) {
+                nd = 2;
+                d[0] = f;
+                d[1] = c;
+            } else {
+                nd = 1;
+                d[0] = f;
+                d[1] = 1;
+            }
+        } else {
+            /*En caso de literal invalido usar dimensiones de respaldo*/
+            nd = 1;
+            d[0] = d[1] = 1;
+        }
+    } else if (dims) {
+        /*Sino hay literal, se leen las dimensiones indicadas en la declaracion
+        Cada dimension debe ser una constante entera positiva
+        */
+        Nodo *x;
+        for (x = dims->hijo; x && nd < 2; x = x->sig, nd++) {
+            long v;
+            if (!sem_const(x, &v)) {
+                expr(x);
+                error(x, 16, "el tamano de la lista debe ser una constante entera");
+                v = 1;
+            } else if (v <= 0 || v > 65536) {
+                error(x, 16, "tamano de lista invalido (%ld): debe estar entre 1 y 65536", v);
+                v = 1;
+            }
+            d[nd] = v;
+        }
+        /*Una lista de una dimension tiene una segunda dimension de 1. */
+        if (nd == 1) {
+            d[1] = 1;
+        }
+        /*Se verifica limite total de elementos*/
+        if (nd == 2 && d[0] * d[1] > 65536) {
+            error(n, 16, "la lista tiene mas de 65536 elementos");
+            d[0] = d[1] = 1;
+        }
+    }
+    /*Se evita declarar un nombre ya utilizado*/
+    if (declarada_en_nivel(n->texto) || buscar_func(n->texto) || buscar_intrinseca(n->texto)) {
+        error(n, 11, "'%s' ya esta declarado", n->texto);
+        return;
+    }
+    /*Crea simbolo y almacena tipo y dimensiones*/
+    s = nuevo_simbolo(n->texto, CL_VAR, n);
+    s->ty = ty;
+    s->ndim = nd ? nd : 1;
+    s->dim[0] = d[0] ? d[0] : 1;
+    s->dim[1] = d[1] ? d[1] : 1;
+    /*Se reservan 8 bytes para la info de la lista y 4 bytes por cada elemento*/
+    bytes = 8 + 4 * s->dim[0] * s->dim[1];
+    asignar(s, bytes);
+    /*Relaciona el nodo con el simbolo y lo agrega al ambito*/
+    n->sim = s;
+    apilar(s);
+}
+/*Analiza una asignacion y verifica que el tipo del destino
+  sea compatible con el tipo del valor asignado
+*/
+static void asignacion(Nodo *n)
+{
+    Nodo *d = hijo_n(n, 0);
+    Nodo *v = hijo_n(n, 1);
+    /*Obtiene el tipo de destino y el de la expr asignada*/
+    int td = expr(d);
+    int tv = expr(v);
+    /*No se puede asignar una lista completa de un solo
+      Sus elementos se asignan de manera individual*/
+    if (d->tipo == NODO_IDENT && d->sim && es_lista(d->sim->ty)) {
+        error(n, 12, "no se asigna una lista completa; asigne elemento a elemento");
+        return;
+    }
+    /*Comprueba que ambos tipos sean compatibles*/
+    if (!compatibles(td, tv)) {
+        error(n, 12, "no se puede asignar %s a %s", ty_nombre(tv), ty_nombre(td));
+    }
+    /*Operadores de asignacion compuesta solo se permiten con variables enteras*/
+    if (strcmp(n->texto, "=") != 0 && !compatibles(td, TY_ENT)) {
+        error(n, 12, "'%s' solo aplica a ent", n->texto);
+    }
+}
+/*Analiza una sentencia segun el tipo de nodo del AST
+ Procesa bloques,declaraciones, asignaciones, estruc de control, retornos y llamadas de funcion*/
+static void sentencia(Nodo *n)
+{
+    Nodo *h;
+
+    if (!n) {
+        return;
+    }
+    switch (n->tipo) {
+    case NODO_BLOQUE:
+        /*Cada bloque crea su propio ambito
+         Cuando se termina su analisis se recupera el ambito anterior
+        */
+        push_scope();
+        for (h = n->hijo; h; h = h->sig) {
+            sentencia(h);
+        }
+        pop_scope();
+        break;
+    case NODO_DECLARACION:
+        declarar_escalar(n); /*Analiza declaracion de variable escalar*/
+        break;
+    case NODO_DECL_LISTA:
+        declarar_lista(n);/*Analiza declaracion de lista*/
+        break;
+    case NODO_ASIGNACION:
+        asignacion(n); /*Comprueba los tipos involucrados en una asignacion*/
+        break;
+    case NODO_SI:
+        /*Comprueba la condicion y analiza las ramas del si.*/
+        condicion(hijo_n(n, 0));
+        sentencia(hijo_n(n, 1));
+        sentencia(hijo_n(n, 2));
+        break;
+    case NODO_MIENTRAS:
+        /*Condicion booleana, luego se analiza el cuerpo*/
+        condicion(hijo_n(n, 0));
+        sentencia(hijo_n(n, 1));
+        break;
+    case NODO_PARA:
+        /*Crea su propio ambito
+        Incluye:inicializacion,condicion,actualizacion y el cuerpo del ciclo*/
+        push_scope();
+        sentencia(hijo_n(n, 0));
+        condicion(hijo_n(n, 1));
+        sentencia(hijo_n(n, 2));
+        sentencia(hijo_n(n, 3));
+        pop_scope();
+        break;
+    case NODO_LISTA:/* Espacio vacio dentro de un para*/
+        break;
+    case NODO_RETORNO: {
+        Nodo *e = hijo_n(n, 0);
+        /*Retorno:Debe estar dentro de una funcion*/
+        if (!cur_func) {
+            error(n, 15, "retorno fuera de una funcion");
+            if (e) expr(e);
+        /*Una funcion vacio no debe devolver un valor */
+        } else if (cur_func->ty == TY_VACIO) {
+            if (e) {
+                expr(e);
+                error(n, 15, "la funcion '%s' es vacio y no devuelve valor", cur_func->nombre);
+            }
+        /*Una funcion que devuelve un valor lo debe incluir en la sentencia de retorno*/
+        } else if (!e) {
+            error(n, 15, "la funcion '%s' debe devolver %s", cur_func->nombre, ty_nombre(cur_func->ty));
+        /*Comrpueba compatibilidad entre valor retornado y tipo de retorno declarado en la funcion*/
+        } else {
+            int t = expr(e);
+            if (!compatibles(t, cur_func->ty)) {
+                error(n, 15, "'%s' devuelve %s y se retorna %s", cur_func->nombre,
+                      ty_nombre(cur_func->ty), ty_nombre(t));
+            }
+        }
+        break;
+    }
+    case NODO_LLAMADA: /*Se ejecuta como sentencia, sin exigir valor de retorno*/
+        llamada(n, 0);
+        break;
+    case NODO_TERMINAR:/*No requiere comprobaciones semanticas */
+        break;
+    default: /*Nodo no corresponde a una sentencia valida en este punto*/
+        error(n, 18, "sentencia no valida en este punto");
+        break;
+    }
+}
+
+/* ---------------- Funciones ---------------- */
+
+/*Registra la definicion de una funcion en la tabla de simbolos 
+  Se registran primero todas las funciones para que una funcion pueda llamar a otra mas adelante*/
+static void registrar_funcion(Nodo *f)
+{
+    Nodo *tipo = hijo_n(f, 0);
+    Nodo *params = hijo_n(f, 1);
+    Nodo *p;
+    Simbolo *s;
+    int i = 0;
+    /*Evitar duplicar nombres de funciones o utilizar nombres intrinsecos*/
+    if (buscar_func(f->texto) || buscar_intrinseca(f->texto)) {
+        error(f, 11, "la funcion '%s' ya esta definida", f->texto);
+        return;
+    }
+    /*Crea el tipo de la funcion y determina su tipo de retorno*/
+    s = nuevo_simbolo(f->texto, CL_FUNC, f);
+    s->ty = tipo_de_nodo(tipo);
+    /*NOTA:De momento las funciones no pueden devolver listas*/
+    if (es_lista(s->ty)) {
+        error(f, 14, "una funcion no puede devolver una lista");
+        s->ty = TY_ERR;
+    }
+    /*Registra tipo y la dimension de cada parametro.Maximo 16 parametros*/
+    for (p = params ? params->hijo : NULL; p; p = p->sig, i++) {
+        int t;
+        if (i >= 16) {
+            error(p, 13, "una funcion admite a lo sumo 16 parametros");
+            break;
+        }
+        t = tipo_de_nodo(hijo_n(p, 0));
+        s->ptipo[i] = t;
+        s->pndim[i] = es_lista(t) ? -1 : 0; /*Para listas -1 indica dimension desconocida*/
+    }
+    /*Guarda la cantidad de parametros y el nodo de definicion*/
+    s->nparams = i;
+    s->def = f;
+    f->sim = s;
+    /*Agrega la funcion a la lista de funciones registradas*/
+    funcs = realloc(funcs, (size_t)(n_funcs + 1) * sizeof(Simbolo *));
+    funcs[n_funcs++] = s;
+    /*Funcion principal:Debe llamarse main, no recibir parametros y tener tipo de retorno vacio*/
+    if (!strcmp(f->texto, "main") && (s->nparams != 0 || s->ty != TY_VACIO)) {
+        error(f, 22, "main debe ser 'vacio def main()' sin parametros");
+    }
+}
+/*Analiza el contenido de una funcion ya registrada
+ Registra parametros, analiza las sentencias de su 
+ cuerpo y calcula el tamano del marco usado por la funcion*/
+static void analizar_funcion(Nodo *f)
+{
+    Simbolo *s = f->sim;
+    Nodo *params = hijo_n(f, 1);
+    Nodo *cuerpo = hijo_n(f, 2);
+    Nodo *p, *h;
+    int i = 0;
+    /*Si la funcion no se registro bien,no se analiza*/
+    if (!s) {
+        return;
+    }
+    cur_func = s;    /*Indica la funcion que se esta analizando*/
+    /*Los parametros pertenecen al ambito de la funcion*/
+    push_scope();
+    for (p = params ? params->hijo : NULL; p && i < s->nparams; p = p->sig, i++) {
+        Simbolo *ps;
+        /*Los parametros no pueden repetirse en el mismo ambito*/
+        if (declarada_en_nivel(p->texto)) {
+            error(p, 11, "el parametro '%s' esta repetido", p->texto);
+            continue;
+        }
+        /*Crea y configura el simbolo del parametro*/
+        ps = nuevo_simbolo(p->texto, CL_PARAM, p);
+        ps->ty = s->ptipo[i];
+        ps->ndim = s->pndim[i];
+        /*Los parametros se almacenan en posiciones relativas a fp*/
+        ps->alm = AL_PARAM;
+        ps->offset = -4L * (i + 1);
+        p->sim = ps;
+        apilar(ps);
+    }
+    /*Inicializa el cursor del marco
+    Se consideran los parametros y el espacio reservador para la funcion*/
+    cursor = 4L * s->nparams + 8;
+    /*Analiza todas las sentencias del cuerpo de la funcion*/
+    for (h = cuerpo ? cuerpo->hijo : NULL; h; h = h->sig) {
+        sentencia(h);
+    }
+    /*Guarda el tamano alcanzado y la zona reservada para los 
+    temporales que deben derramarse durante las llamadas*/
+    s->zona_derrame = cursor;
+    s->marco = cursor + 4L * N_DERRAME;
+    /*Al finalizar se restaura el ambito y se sale de la funcion*/
+    pop_scope();
+    cur_func = NULL;
+}
 /*Ejecuta el analisis semantico del programa
  1-Registra funciones y despues analiza sus cuerpos y las sentencias del nivel superior.
  2-Devuelve cantidad total de errores semanticos encontrados*/
@@ -558,7 +959,5 @@ void sem_imprimir_tabla(FILE *f)
 
 /*Stubs temporales para compilacion*/
 static Simbolo *buscar_intrinseca(const char *n) { (void)n; return NULL; }
-static void registrar_funcion(Nodo *f) { (void)f; }
-static void analizar_funcion(Nodo *f) { (void)f; }
-static void sentencia(Nodo *n) { (void)n; }
+
 static int llamada(Nodo *n, int es_valor) { (void)n; (void)es_valor; return TY_ERR; }
