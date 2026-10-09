@@ -1,0 +1,2 @@
+HALT cycles=1217 bundles=1092 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+ej2_busqueda_matriz: PASS

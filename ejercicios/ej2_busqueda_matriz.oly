@@ -1,0 +1,32 @@
+$ ej2_busqueda_matriz.oly - Busca un valor en una matriz de 3x4 con dos ciclos
+$ anidados y condicion de salida. La posicion se devuelve en una lista
+$ pasada por referencia: pos[0] = fila, pos[1] = columna.
+
+list ent matriz = [[3, 8, 1, 7], [9, 4, 6, 2], [5, 0, 12, 11]];
+list ent pos[2];
+bool encontrado = falso;
+bool no_hallado = verdadero;
+
+bool def buscar(list ent m, ent filas, ent cols, ent objetivo, list ent salida) {
+    bool hallado = falso;
+    ent i = 0;
+    mientras (i < filas && !hallado) {
+        ent j = 0;
+        mientras (j < cols && !hallado) {
+            si (m[i][j] == objetivo) {
+                hallado = verdadero;
+                salida[0] = i;
+                salida[1] = j;
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+    retorno (hallado);
+}
+
+vacio def main() {
+    encontrado = llamar buscar(matriz, 3, 4, 6, pos);
+    no_hallado = llamar buscar(matriz, 3, 4, 99, pos);
+    $ si el 99 no estaba, pos conserva la ultima posicion hallada: (1, 2)
+}

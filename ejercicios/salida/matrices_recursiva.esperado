@@ -1,0 +1,3 @@
+mem 0x10020 = 21   # total
+mem 0x10024 = 55   # fib10
+mem 0x10028 = 720  # fact6

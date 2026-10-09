@@ -1,0 +1,76 @@
+$ ej3_feistel.oly - Cifrado y descifrado Feistel4 de una lista de bloques con la
+$ boveda del procesador (validacion conjunta CE1108 + CE4301).
+$
+$ La llave de 128 bits 00112233 44556677 8899aabb ccddeeff queda en la llave 0.
+$ Las subllaves viajan solo por LOADKEY: el compilador las borra del GPR.
+$ Cuatro bloques de 64 bits = 8 palabras (L0 R0 L1 R1 ...).
+
+list ent claro = [0x01234567, 0x89ABCDEF, 0xDEADBEEF, 0x0BADF00D, 0, 0, 0xFFFFFFFF, 0x00000001];
+list ent copia[8];
+list ent cifrado[8];
+bool igual = falso;
+ent suma_cifrada = 0;
+ent estado = 0;
+
+vacio def configurar_boveda() {
+    llamar autenticar(0xCAFE1234);
+    llamar cargar_llave(0x00112233, 0, 0);
+    llamar cargar_llave(0x44556677, 0, 1);
+    llamar cargar_llave(0x8899AABB, 0, 2);
+    llamar cargar_llave(0xCCDDEEFF, 0, 3);
+}
+
+vacio def copiar(list ent origen, list ent destino, ent n) {
+    para (ent i = 0; i < n; i += 1) {
+        destino[i] = origen[i];
+    }
+}
+
+vacio def cifrar_lista(list ent datos, ent bloques) {
+    para (ent b = 0; b < bloques; b += 1) {
+        ent l = datos[2 * b];
+        ent r = datos[2 * b + 1];
+        llamar feistel_cifrar(l, r, 0);
+        datos[2 * b] = l;
+        datos[2 * b + 1] = r;
+    }
+}
+
+vacio def descifrar_lista(list ent datos, ent bloques) {
+    para (ent b = 0; b < bloques; b += 1) {
+        ent l = datos[2 * b];
+        ent r = datos[2 * b + 1];
+        llamar feistel_descifrar(l, r, 0);
+        datos[2 * b] = l;
+        datos[2 * b + 1] = r;
+    }
+}
+
+bool def iguales(list ent a, list ent b, ent n) {
+    para (ent i = 0; i < n; i += 1) {
+        si (a[i] != b[i]) {
+            retorno (falso);
+        }
+    }
+    retorno (verdadero);
+}
+
+ent def suma_de_control(list ent datos, ent n) {
+    ent acc = 0;
+    para (ent i = 0; i < n; i += 1) {
+        acc += datos[i];
+    }
+    retorno (acc);
+}
+
+vacio def main() {
+    llamar configurar_boveda();
+    llamar copiar(claro, copia, 8);
+    llamar cifrar_lista(claro, 4);
+    llamar copiar(claro, cifrado, 8);
+    suma_cifrada = llamar suma_de_control(cifrado, 8);
+    llamar descifrar_lista(claro, 4);
+    igual = llamar iguales(claro, copia, 8);
+    estado = llamar leer_estado();
+    llamar cerrar_sesion();
+}

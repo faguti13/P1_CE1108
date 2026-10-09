@@ -1,0 +1,2 @@
+HALT cycles=3293 bundles=2988 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+mergesort: PASS

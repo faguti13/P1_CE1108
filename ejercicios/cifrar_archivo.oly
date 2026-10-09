@@ -1,0 +1,30 @@
+$ cifrar_archivo.oly - Cifra en el lugar el archivo que dejo el cargador en memoria.
+$ Buzon de E/S (0x1FFF0): [direccion del buffer, tamano en bytes, numero de bloques].
+$ Usa leer_mem/escribir_mem sobre el buffer y la boveda para la llave 0.
+
+ent direccion = 0;
+ent bloques = 0;
+
+vacio def preparar() {
+    llamar autenticar(0xCAFE1234);
+    llamar cargar_llave(0x00112233, 0, 0);
+    llamar cargar_llave(0x44556677, 0, 1);
+    llamar cargar_llave(0x8899AABB, 0, 2);
+    llamar cargar_llave(0xCCDDEEFF, 0, 3);
+}
+
+vacio def main() {
+    ent l = 0;
+    ent r = 0;
+    llamar preparar();
+    direccion = llamar leer_mem(0x1FFF0);
+    bloques = llamar leer_mem(0x1FFF8);
+    para (ent b = 0; b < bloques; b += 1) {
+        l = llamar leer_mem(direccion + 8 * b);
+        r = llamar leer_mem(direccion + 8 * b + 4);
+        llamar feistel_cifrar(l, r, 0);
+        llamar escribir_mem(direccion + 8 * b, l);
+        llamar escribir_mem(direccion + 8 * b + 4, r);
+    }
+    llamar cerrar_sesion();
+}
