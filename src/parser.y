@@ -162,24 +162,24 @@ tipo
     ;
 
 tipo_escalar
-    : TK_ENT     { $$ = P(nodo_nuevo(NODO_TIPO, "ent")); }
-    | TK_REAL    { $$ = P(nodo_nuevo(NODO_TIPO, "real")); }
-    | TK_DOBLE   { $$ = P(nodo_nuevo(NODO_TIPO, "doble")); }
-    | TK_BOOL    { $$ = P(nodo_nuevo(NODO_TIPO, "bool")); }
-    | TK_CARACT  { $$ = P(nodo_nuevo(NODO_TIPO, "caract")); }
-    | TK_CAD     { $$ = P(nodo_nuevo(NODO_TIPO, "cad")); }
+    : TK_ENT     { $$ = P(nodo_en(NODO_TIPO, "ent", $1.linea, $1.col)); }
+    | TK_REAL    { $$ = P(nodo_en(NODO_TIPO, "real", $1.linea, $1.col)); }
+    | TK_DOBLE   { $$ = P(nodo_en(NODO_TIPO, "doble", $1.linea, $1.col)); }
+    | TK_BOOL    { $$ = P(nodo_en(NODO_TIPO, "bool", $1.linea, $1.col)); }
+    | TK_CARACT  { $$ = P(nodo_en(NODO_TIPO, "caract", $1.linea, $1.col)); }
+    | TK_CAD     { $$ = P(nodo_en(NODO_TIPO, "cad", $1.linea, $1.col)); }
     ;
 
 tipo_retorno
     : tipo
         { $$ = $1; }
     | TK_VACIO
-        { $$ = P(nodo_nuevo(NODO_TIPO, "vacio")); }
+        { $$ = P(nodo_en(NODO_TIPO, "vacio", $1.linea, $1.col)); }
     ;
 
 literal_bool
-    : TK_VERDADERO { $$ = P(nodo_nuevo(NODO_LITERAL, "verdadero")); }
-    | TK_FALSO     { $$ = P(nodo_nuevo(NODO_LITERAL, "falso")); }
+    : TK_VERDADERO { Nodo *n = nodo_en(NODO_LITERAL, "verdadero", $1.linea, $1.col); n->val = 1; $$ = P(n); }
+    | TK_FALSO     { $$ = P(nodo_en(NODO_LITERAL, "falso", $1.linea, $1.col)); }
     ;
 
 /* ------------------------------------------------------------------ */
@@ -191,6 +191,8 @@ funcion
     : tipo_retorno TK_DEF TK_IDENT '(' parametros ')' bloque
         {
             Nodo *nodo = nodo_funcion($1.nodo, $3.texto, $5.nodo, $7.nodo);
+            nodo->linea = $3.linea;
+            nodo->col = $3.col;
             free($3.texto);
             $$ = P(nodo);
         }
@@ -214,6 +216,8 @@ parametro
     : tipo TK_IDENT
         {
             Nodo *nodo = nodo_parametro($1.nodo, $2.texto);
+            nodo->linea = $2.linea;
+            nodo->col = $2.col;
             free($2.texto);
             $$ = P(nodo);
         }
@@ -234,6 +238,8 @@ sentencia_llamar
     : TK_LLAMAR TK_IDENT '(' argumentos ')' ';'
         {
             Nodo *nodo = nodo_llamada($2.texto, $4.nodo);
+            nodo->linea = $2.linea;
+            nodo->col = $2.col;
             free($2.texto);
             $$ = P(nodo);
         }
@@ -243,6 +249,8 @@ expr_llamar
     : TK_LLAMAR TK_IDENT '(' argumentos ')'
         {
             Nodo *nodo = nodo_llamada($2.texto, $4.nodo);
+            nodo->linea = $2.linea;
+            nodo->col = $2.col;
             free($2.texto);
             $$ = P(nodo);
         }
@@ -292,61 +300,143 @@ sentencia
     | asignacion
     | sentencia_si
     | sentencia_mientras
+    | sentencia_para
     ;
 
 /*
- * Declaracion de un escalar, con valor inicial opcional.
- * TODO: listas con valor inicial (`list ent n = [1, 2]`), listas con
- * tamano (`list ent n[10]`) y matrices. Propuesta de sintaxis de JAF,
- * secciones 4.1 y 4.2.
+ * Declaracion de un escalar o de una lista. Formas (Propuesta de
+ * sintaxis de JAF, secciones 4.1 y 4.2):
+ *   ent x;   ent x = e;   list ent v[10];   list ent m[3][4];
+ *   list ent v = [1, 2, 3];   list ent m = [[1, 2], [3, 4]];
+ * Las listas generan NODO_DECL_LISTA con hijos: tipo, dimensiones, valor.
  */
 declaracion
     : tipo TK_IDENT ';'
         {
-            Nodo *nodo = nodo_nuevo(NODO_DECLARACION, $2.texto);
+            Nodo *nodo = nodo_en(NODO_DECLARACION, $2.texto, $2.linea, $2.col);
             nodo_hijo(nodo, $1.nodo);
             free($2.texto);
             $$ = P(nodo);
         }
     | tipo TK_IDENT '=' expresion ';'
         {
-            Nodo *nodo = nodo_nuevo(NODO_DECLARACION, $2.texto);
+            Nodo *nodo = nodo_en(NODO_DECLARACION, $2.texto, $2.linea, $2.col);
             nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, $4.nodo);
+            free($2.texto);
+            $$ = P(nodo);
+        }
+    | tipo TK_IDENT dimensiones ';'
+        {
+            Nodo *nodo = nodo_en(NODO_DECL_LISTA, $2.texto, $2.linea, $2.col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, nodo_lista("dimensiones", $3.nodo));
+            nodo_hijo(nodo, nodo_vacio("valor"));
+            free($2.texto);
+            $$ = P(nodo);
+        }
+    | tipo TK_IDENT '=' literal_lista ';'
+        {
+            Nodo *nodo = nodo_en(NODO_DECL_LISTA, $2.texto, $2.linea, $2.col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, nodo_vacio("dimensiones"));
             nodo_hijo(nodo, $4.nodo);
             free($2.texto);
             $$ = P(nodo);
         }
     ;
 
+dimensiones
+    : '[' expresion ']'
+        { $$ = $2; }
+    | '[' expresion ']' '[' expresion ']'
+        { $$ = P(nodo_enlazar($2.nodo, $5.nodo)); }
+    ;
+
+literal_lista
+    : '[' elementos_lista ']'
+        {
+            Nodo *nodo = nodo_nuevo(NODO_LISTA_LIT, NULL);
+            nodo_hijos_cadena(nodo, $2.nodo);
+            $$ = P(nodo);
+        }
+    ;
+
+elementos_lista
+    : elemento_lista
+        { $$ = $1; }
+    | elementos_lista ',' elemento_lista
+        { $$ = P(nodo_enlazar($1.nodo, $3.nodo)); }
+    ;
+
+elemento_lista
+    : expresion
+        { $$ = $1; }
+    | literal_lista
+        { $$ = $1; }
+    ;
+
+/* Acceso por indice: nombre[i] o nombre[i][j]. */
+indice
+    : TK_IDENT '[' expresion ']'
+        {
+            Nodo *nodo = nodo_en(NODO_INDICE, $1.texto, $1.linea, $1.col);
+            nodo_hijo(nodo, $3.nodo);
+            free($1.texto);
+            $$ = P(nodo);
+        }
+    | TK_IDENT '[' expresion ']' '[' expresion ']'
+        {
+            Nodo *nodo = nodo_en(NODO_INDICE, $1.texto, $1.linea, $1.col);
+            nodo_hijo(nodo, $3.nodo);
+            nodo_hijo(nodo, $6.nodo);
+            free($1.texto);
+            $$ = P(nodo);
+        }
+    ;
+
+destino
+    : TK_IDENT
+        {
+            Nodo *nodo = nodo_en(NODO_IDENT, $1.texto, $1.linea, $1.col);
+            free($1.texto);
+            $$ = P(nodo);
+        }
+    | indice
+        { $$ = $1; }
+    ;
+
 /*
- * Asignacion simple y compuesta (+=, -=).
- * TODO: el destino tambien puede ser un indice (`nombre[i]`).
+ * Asignacion simple y compuesta (+=, -=). El destino es un
+ * identificador o un indice. La forma sin ';' se reutiliza en para.
  */
+asignacion_sp
+    : destino '=' expresion
+        {
+            Nodo *nodo = nodo_en(NODO_ASIGNACION, "=", $1.nodo->linea, $1.nodo->col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, $3.nodo);
+            $$ = P(nodo);
+        }
+    | destino TK_MAS_IGUAL expresion
+        {
+            Nodo *nodo = nodo_en(NODO_ASIGNACION, "+=", $1.nodo->linea, $1.nodo->col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, $3.nodo);
+            $$ = P(nodo);
+        }
+    | destino TK_MENOS_IGUAL expresion
+        {
+            Nodo *nodo = nodo_en(NODO_ASIGNACION, "-=", $1.nodo->linea, $1.nodo->col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, $3.nodo);
+            $$ = P(nodo);
+        }
+    ;
+
 asignacion
-    : TK_IDENT '=' expresion ';'
-        {
-            Nodo *nodo = nodo_nuevo(NODO_ASIGNACION, "=");
-            nodo_hijo(nodo, nodo_nuevo(NODO_IDENT, $1.texto));
-            nodo_hijo(nodo, $3.nodo);
-            free($1.texto);
-            $$ = P(nodo);
-        }
-    | TK_IDENT TK_MAS_IGUAL expresion ';'
-        {
-            Nodo *nodo = nodo_nuevo(NODO_ASIGNACION, "+=");
-            nodo_hijo(nodo, nodo_nuevo(NODO_IDENT, $1.texto));
-            nodo_hijo(nodo, $3.nodo);
-            free($1.texto);
-            $$ = P(nodo);
-        }
-    | TK_IDENT TK_MENOS_IGUAL expresion ';'
-        {
-            Nodo *nodo = nodo_nuevo(NODO_ASIGNACION, "-=");
-            nodo_hijo(nodo, nodo_nuevo(NODO_IDENT, $1.texto));
-            nodo_hijo(nodo, $3.nodo);
-            free($1.texto);
-            $$ = P(nodo);
-        }
+    : asignacion_sp ';'
+        { $$ = $1; }
     ;
 
 /*
@@ -382,8 +472,7 @@ si_resto
 
 /*
  * mientras (condicion) bloque. Propuesta de sintaxis de JAF, seccion 6.3.
- * TODO: bucle para, seccion 6.4 de esa propuesta:
- *   para ( <inicializacion> ; <condicion> ; <actualizacion> ) bloque
+ * para ( inicio ; condicion ; actualizacion ) bloque, seccion 6.4.
  */
 sentencia_mientras
     : TK_MIENTRAS '(' expresion ')' bloque
@@ -393,6 +482,40 @@ sentencia_mientras
             nodo_hijo(nodo, $5.nodo);
             $$ = P(nodo);
         }
+    ;
+
+sentencia_para
+    : TK_PARA '(' para_inicio ';' expresion ';' para_actualiza ')' bloque
+        {
+            Nodo *nodo = nodo_nuevo(NODO_PARA, NULL);
+            nodo_hijo(nodo, $3.nodo);
+            nodo_hijo(nodo, $5.nodo);
+            nodo_hijo(nodo, $7.nodo);
+            nodo_hijo(nodo, $9.nodo);
+            $$ = P(nodo);
+        }
+    ;
+
+para_inicio
+    : %empty
+        { $$ = P(nodo_vacio("inicio")); }
+    | tipo TK_IDENT '=' expresion
+        {
+            Nodo *nodo = nodo_en(NODO_DECLARACION, $2.texto, $2.linea, $2.col);
+            nodo_hijo(nodo, $1.nodo);
+            nodo_hijo(nodo, $4.nodo);
+            free($2.texto);
+            $$ = P(nodo);
+        }
+    | asignacion_sp
+        { $$ = $1; }
+    ;
+
+para_actualiza
+    : %empty
+        { $$ = P(nodo_vacio("actualizacion")); }
+    | asignacion_sp
+        { $$ = $1; }
     ;
 
 /*
@@ -440,25 +563,28 @@ primario
         { $$ = $1; }
     | TK_IDENT
         {
-            Nodo *nodo = nodo_nuevo(NODO_IDENT, $1.texto);
+            Nodo *nodo = nodo_en(NODO_IDENT, $1.texto, $1.linea, $1.col);
             free($1.texto);
             $$ = P(nodo);
         }
+    | indice
+        { $$ = $1; }
     | TK_ENTERO
         {
-            Nodo *nodo = nodo_nuevo(NODO_LITERAL, $1.texto);
+            Nodo *nodo = nodo_en(NODO_LITERAL, $1.texto, $1.linea, $1.col);
+            nodo->val = $1.entero;
             free($1.texto);
             $$ = P(nodo);
         }
     | TK_CADENA
         {
-            Nodo *nodo = nodo_nuevo(NODO_LITERAL, $1.texto);
+            Nodo *nodo = nodo_en(NODO_LITERAL, $1.texto, $1.linea, $1.col);
             free($1.texto);
             $$ = P(nodo);
         }
     | TK_CARACTER
         {
-            Nodo *nodo = nodo_nuevo(NODO_LITERAL, $1.texto);
+            Nodo *nodo = nodo_en(NODO_LITERAL, $1.texto, $1.linea, $1.col);
             free($1.texto);
             $$ = P(nodo);
         }
