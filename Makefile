@@ -9,7 +9,7 @@
 #   make asan         recompila con AddressSanitizer/UBSan y repite make test
 #   make sync-isa     copia la ISA del repo del procesador a ./isa.md
 #   make pdf          regenera docs/04_ejemplos.md y arma docs/JAF-compilador.pdf
-#   make prueba       compila ejemplos/prueba.oly mostrando el AST (-t) y las fases (-v)
+#   make prueba       vuelca los tokens de ejemplos/prueba.oly (-t) y los comentarios descartados (-v)
 #   make arbol        imprime el arbol de ese mismo programa
 #   make clean        borra build/
 
@@ -72,7 +72,8 @@ build/parser.c build/parser.h: src/parser.y src/comun.h src/ast.h | build
 build/parser.o: build/parser.c src/ast.h src/comun.h
 	$(CC) $(CFLAGS) -c build/parser.c -o $@
 
-# Corre el compilador sobre el ejemplo con -t (imprime el AST) y -v (muestra las fases).
+# Vuelca los tokens del ejemplo con -t (linea:columna, token y lexema) y, con -v,
+# avisa los comentarios que el lexer descarta. Con -t no se parsea ni se compila.
 prueba: build/jaf
 	./build/jaf -t -v ejemplos/prueba.oly
 
