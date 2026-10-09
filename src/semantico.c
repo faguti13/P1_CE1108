@@ -104,9 +104,7 @@ static int n_hijos(const Nodo *n)
     }
     return k;
 }
-/*Stubs temporales para compilacion*/
-static Simbolo *buscar_intrinseca(const char *n);
-static int llamada(Nodo *n, int es_valor);
+
 /* ---------------- Tabla de Simbolos ---------------- */
 
 /*Crea un nuevo simbolo y lo registra en la lista global de simbolos
@@ -246,6 +244,7 @@ static int compatibles(int a, int b)
 {
     return a == TY_ERR || b == TY_ERR || a == b;
 }
+
 /* ---------------- Constantes ---------------- */
 
 /*Evalua una expresion constante entera durante el analisis semantico
@@ -288,7 +287,6 @@ int sem_const(const Nodo *n, long *v)
     }
     return 0;
 }
-
 
 /* ---------------- Expresiones ---------------- */
 
@@ -454,6 +452,153 @@ static int expr(Nodo *n)
         return n->ty = TY_ERR;
     }
 }
+
+/* ---------------- intrinsecas y llamadas ---------------- */
+/*Tabla de funciones intrinsecas del lenguaje.
+*/
+static const struct {
+    const char *nombre; /*Nombre utilizado en el programa*/
+    Intr id;            /*Identificador interno de la intrinseca*/
+    int ret;            /*Tipo de retorno*/
+    int n;              /*Cantidad de argumentos*/
+} intrinsecas[] = {
+    {"autenticar", IN_AUTENTICAR, TY_VACIO, 1},
+    {"cerrar_sesion", IN_CERRAR_SESION, TY_VACIO, 0},
+    {"leer_estado", IN_LEER_ESTADO, TY_ENT, 0},
+    {"cargar_llave", IN_CARGAR_LLAVE, TY_VACIO, 3},
+    {"ronda_feistel", IN_RONDA_FEISTEL, TY_VACIO, 4},
+    {"feistel_cifrar", IN_FEISTEL_CIFRAR, TY_VACIO, 3},
+    {"feistel_descifrar", IN_FEISTEL_DESCIFRAR, TY_VACIO, 3},
+    {"leer_mem", IN_LEER_MEM, TY_ENT, 1},
+    {"escribir_mem", IN_ESCRIBIR_MEM, TY_VACIO, 2},
+};
+
+/*Busca una funcion dentro de la tabla de intrinsecas
+  El simbolo se crea solo la primera vez que se solicita.
+ Para no crealo varias veces, se usa una mini cache.
+  */
+static Simbolo *buscar_intrinseca(const char *nombre)
+{
+    static Simbolo *cache[sizeof intrinsecas / sizeof intrinsecas[0]];
+    size_t i;
+    for (i = 0; i < sizeof intrinsecas / sizeof intrinsecas[0]; i++) {
+        if (!strcmp(intrinsecas[i].nombre, nombre)) {
+            /*Si todavia no existe se crea su simbolo*/
+            if (!cache[i]) {
+                cache[i] = calloc(1, sizeof(Simbolo));
+                cache[i]->nombre = strdup(nombre);
+                cache[i]->clase = CL_INTRINSECA;
+                cache[i]->ty = intrinsecas[i].ret;
+                cache[i]->nparams = intrinsecas[i].n;
+                cache[i]->intr = intrinsecas[i].id;
+                cache[i]->funcion = strdup("(intrinseca)");
+            }
+            return cache[i];
+        }
+    }
+    return NULL;
+}
+/*
+  Verifica si el nodo es un lvalue entero modificable
+  (variable entera o elemento entero de lista).
+ */
+
+static int es_lvalue_ent(Nodo *a)
+{
+    return (a->tipo == NODO_IDENT && a->sim && a->sim->clase != CL_FUNC && a->sim->ty == TY_ENT) ||
+           (a->tipo == NODO_INDICE && a->ty == TY_ENT);
+}
+/* Analiza una llamada a una funcion o intrinseca*/
+static int llamada(Nodo *n, int es_valor)
+/*Es valor indica si la llamada se esta usando como una expr que necesita un valor*/
+{
+    Simbolo *f = buscar_intrinseca(n->texto);
+    Nodo *arg;
+    int i, na = n_hijos(n);
+    /*Primero se busca intrinsecas
+      Luego en la func definidas por el programa
+    */
+    if (!f) {
+        f = buscar_func(n->texto);
+    }
+    /*La funcion no existe*/
+    if (!f) {
+        error(n, 10, "la funcion '%s' no esta definida", n->texto);
+        /*Se analizan todos los argumentos para detectar otros errores semanticos*/
+        for (arg = n->hijo; arg; arg = arg->sig) {
+            expr(arg);
+        }
+        return TY_ERR;
+    }
+    n->sim = f; /*Se relaciona llamada con el simbolo de la funcion*/
+    /*Se verifica que la cant de argumentos sea igual a la cant de parametros esperados*/
+    if (na != f->nparams) {
+        error(n, 13, "'%s' espera %d argumento(s) y recibe %d", n->texto, f->nparams, na);
+        /*Se analizan los argumentos aunque haya error*/
+        for (arg = n->hijo; arg; arg = arg->sig) {
+            expr(arg);
+        }
+        return f->ty;
+    }
+    /*Se analiza cada arg y se comprueba que sea compatible con su respectivo parametro*/
+    for (i = 0, arg = n->hijo; arg; arg = arg->sig, i++) {
+        int t = expr(arg);
+        if (f->clase == CL_INTRINSECA) {
+            /* Intrisecas con reglas especiales para sus argumentos*/
+            switch (f->intr) {
+            /*Requieren que las dos primeras variables sean enteros y los demas arg constantes entre 0 y 3*/
+            case IN_RONDA_FEISTEL:
+            case IN_FEISTEL_CIFRAR:
+            case IN_FEISTEL_DESCIFRAR:
+                if (i < 2) {
+                    if (!es_lvalue_ent(arg)) {
+                        error(arg, 13, "el argumento %d de '%s' debe ser una variable ent", i + 1, f->nombre);
+                    }
+                } else {
+                    long v;
+                    if (!sem_const(arg, &v) || v < 0 || v > 3) {
+                        error(arg, 25, "el argumento %d de '%s' debe ser una constante entre 0 y 3", i + 1, f->nombre);
+                    }
+                }
+                break;
+            /*Recibe un entero como primer arg, los demas son const entre 0 y 3*/
+            case IN_CARGAR_LLAVE:
+                if (i >= 1) {
+                    long v;
+                    if (!sem_const(arg, &v) || v < 0 || v > 3) {
+                        error(arg, 25, "el argumento %d de '%s' debe ser una constante entre 0 y 3", i + 1, f->nombre);
+                    }
+                } else if (!compatibles(t, TY_ENT)) {
+                    error(arg, 13, "el argumento 1 de '%s' debe ser ent", f->nombre);
+                }
+                break;
+            /*Para las demas intrinsecas se exige un arg entero*/
+            default:
+                if (!compatibles(t, TY_ENT)) {
+                    error(arg, 13, "el argumento %d de '%s' debe ser ent, no %s", i + 1, f->nombre, ty_nombre(t));
+                }
+                break;
+            }
+        } else {
+            /*Funcion normal:Tipo de arg debe corresponder con tipo de parametro*/
+            if (!compatibles(t, f->ptipo[i])) {
+                error(arg, 13, "el argumento %d de '%s' es %s y se esperaba %s", i + 1, f->nombre,
+                      ty_nombre(t), ty_nombre(f->ptipo[i]));
+            /*Los parametros que son listas reciben el nombre de la lista, no una expresion cualquiera.*/
+            } else if (es_lista(f->ptipo[i]) && arg->tipo != NODO_IDENT) {
+
+                error(arg, 13, "el argumento %d de '%s' debe ser el nombre de una lista", i + 1, f->nombre);
+            }
+        }
+    }
+    /*Uns expr de tipo vacio no se puede usar como expr que espera obtener un valor.*/
+    if (es_valor && f->ty == TY_VACIO) {
+        error(n, 20, "'%s' no devuelve valor (vacio) y se usa en una expresion", n->texto);
+        return TY_ERR;
+    }
+    return f->ty;
+}
+
 /* ---------------- Sentencias ---------------- */
 
 static void sentencia(Nodo *n); 
@@ -851,7 +996,7 @@ static void analizar_funcion(Nodo *f)
     for (h = cuerpo ? cuerpo->hijo : NULL; h; h = h->sig) {
         sentencia(h);
     }
-    /*Guarda el tamano alcanzado y la zona reservada para los 
+    /*Guarda el tama;o alcanzado y la zona reservada para los 
     temporales que deben derramarse durante las llamadas*/
     s->zona_derrame = cursor;
     s->marco = cursor + 4L * N_DERRAME;
@@ -956,8 +1101,3 @@ void sem_imprimir_tabla(FILE *f)
     /*Muestra espacio total reservado para variables globales.*/
     fprintf(f, "area global: %ld bytes\n", sem.bytes_globales);
 }
-
-/*Stubs temporales para compilacion*/
-static Simbolo *buscar_intrinseca(const char *n) { (void)n; return NULL; }
-
-static int llamada(Nodo *n, int es_valor) { (void)n; (void)es_valor; return TY_ERR; }
