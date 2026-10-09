@@ -1,0 +1,84 @@
+$ expresiones.oly - Cubre aritmetica, relacionales como valor, constantes de 32 bits,
+$ cortocircuito, llamadas anidadas con derrame de temporales, compuestas y listas.
+
+list ent r[26];
+list bool bv[12];
+ent contador = 0;
+
+ent def suma3(ent a, ent b, ent c) {
+    retorno (a + b + c);
+}
+
+ent def efecto() {
+    contador += 1;
+    retorno (1);
+}
+
+vacio def main() {
+    ent a = 17;
+    ent b = 5;
+    ent c = -3;
+    list ent mm[2][3];
+    list ent grande[40];
+
+    r[0] = a + b;
+    r[1] = a - b;
+    r[2] = a * b;
+    r[3] = a / b;
+    r[4] = a % b;
+    r[5] = c * b;
+    r[6] = -a;
+    r[7] = c / 2;
+
+    bv[0] = a < b;
+    bv[1] = a > b;
+    bv[2] = a <= 17;
+    bv[3] = a >= 18;
+    bv[4] = a == 17;
+    bv[5] = a != 17;
+    bv[6] = !(a > b);
+    bv[7] = (a > b) && (b > 0);
+    bv[8] = (a < b) || (c < 0);
+    bv[9] = a == b;
+    bv[10] = a != b;
+    bv[11] = b <= 5;
+
+    r[9] = 0x12345678;
+    r[10] = 0xFFFFFFFF;
+    r[11] = 100000;
+    r[12] = -100000;
+    r[13] = 0x80000000;
+
+    si (falso && llamar efecto() == 1) {
+        r[14] = 1;
+    } sino {
+        r[14] = 2;
+    }
+    r[15] = contador;
+    si (verdadero || llamar efecto() == 1) {
+        r[16] = 3;
+    }
+    r[17] = contador;
+    si (verdadero && llamar efecto() == 1) {
+        r[18] = 4;
+    }
+    r[19] = contador;
+
+    r[20] = llamar suma3(1, llamar suma3(2, 3, 4), 5);
+    r[21] = 2 + llamar suma3(1, 1, 1) * 3;
+    r[22] = 2 + 3 * 4 - 6 / 2;
+    r[23] = (2 + 3) * 4 - -2;
+
+    r[24] = 10;
+    r[24] += 5;
+    r[24] -= 3;
+
+    mm[1][2] = 9;
+    mm[1][2] += 1;
+    mm[0][0] = 4;
+    r[25] = mm[1][2] * 100 + mm[0][0] + mm[0][1];
+
+    grande[39] = 7;
+    grande[0] = 5;
+    r[8] = grande[39] + grande[0] + grande[20];
+}

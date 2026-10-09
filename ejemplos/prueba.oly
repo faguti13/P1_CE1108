@@ -1,0 +1,64 @@
+$ Programa de prueba del compilador JAF.
+$ Cubre declaracion, expresion, si anidado, mientras, funcion y las
+$ dos formas de comentario: $ hasta el fin de linea, y la raya.
+$ Un $ puede ir despues del codigo. Ent no es ent, y entero no es el tipo.
+
+—
+Comentario de varias lineas.
+Un $ interno no abre un comentario de una linea.
+Un guion -- no cierra ni abre esta lectura: solo la raya.
+—
+
+#import "matematica"; $ la directiva solo puede ir al inicio del archivo
+
+$ acotar deja el valor como esta si no pasa de tope.
+$ Si lo pasa y es positivo, lo baja al tope.
+$ Si lo pasa y no es positivo, devuelve 0.
+$ Con el tope 10 que usa main, ese tercer caso no ocurre.
+ent def acotar(ent valor, ent tope) {
+    ent resultado = valor; $ se conserva si valor no supera el tope
+    si (valor > tope) {
+        si (valor > 0) {
+            resultado = tope; $ tope superior
+        } sino {
+            resultado = 0;
+        }
+    }
+    retorno (resultado);
+}
+
+$ Una funcion vacio no lleva expresion en el retorno.
+vacio def fin() {
+    retorno;
+}
+
+$ main suma los enteros de 2 a n y luego acota esa suma.
+$ Con n = 5 la suma es 2+3+4+5 = 14, y acotar(14, 10) devuelve 10.
+vacio def main() {
+    ent n = 5; $ limite del ciclo
+    ent entero = 1; $ identificador: es mas largo que el tipo ent
+    ent i = 1;
+    ent acumulado = 0;
+    ent temperatura = -8; $ el menos es unario, no parte del literal
+    ent ajuste = 3 - - 1; $ 3 menos el negativo de 1
+    mientras (i <= n) {
+        si (i > 1) { $ el 1 no se suma
+            si (acumulado >= 0) {
+                acumulado = acumulado + i;
+            }
+        }
+        i = i + 1;
+    }
+    ent final = llamar acotar(acumulado, 10); $ 14 queda en 10
+    bool listo = verdadero;
+    real medida = 0; $ el tipo se reconoce; rechazarlo es semantico
+    doble preciso = 0;
+    caract marca = 'J';
+    cad mensaje = "listo";
+    si (listo == verdadero && final != 0) {
+        llamar acotar(final, n); $ el resultado no se guarda
+    } sino {
+        acumulado -= 1;
+    }
+    terminar; $ fin de la ejecucion
+}
