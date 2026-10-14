@@ -1,0 +1,2 @@
+$ ESPERA: {ERROR 22}
+ent def main() { retorno (0); }

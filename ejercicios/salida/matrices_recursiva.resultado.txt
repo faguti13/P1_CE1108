@@ -1,0 +1,2 @@
+HALT cycles=6921 bundles=5748 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+matrices_recursiva: PASS

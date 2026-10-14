@@ -1,0 +1,4 @@
+mem 0x10040 = 1    # pos[0] = fila de 6
+mem 0x10044 = 2    # pos[1] = columna de 6
+mem 0x10048 = 1    # encontrado
+mem 0x1004C = 0    # no_hallado: 99 no esta

@@ -1,0 +1,10 @@
+ent x = 1;
+ent resultado = 0;
+vacio def main() {
+    ent x = 10;
+    si (verdadero) {
+        ent x = 100;
+        resultado = x;
+    }
+    resultado += x;
+}

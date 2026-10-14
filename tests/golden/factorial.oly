@@ -1,0 +1,22 @@
+$ ej1_factorial.oly - Factorial con funcion, locales, si, para y aritmetica.
+$ factorial(5) = 120 queda en la variable global `resultado`.
+$ factorial(-3) devuelve -1 (entrada invalida).
+
+ent resultado = 0;
+ent invalido = 0;
+
+ent def factorial(ent n) {
+    ent acc = 1;
+    si (n < 0) {
+        retorno (-1);
+    }
+    para (ent i = 2; i <= n; i += 1) {
+        acc = acc * i;
+    }
+    retorno (acc);
+}
+
+vacio def main() {
+    resultado = llamar factorial(5);
+    invalido = llamar factorial(-3);
+}

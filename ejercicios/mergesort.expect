@@ -1,0 +1,8 @@
+mem 0x10008 = 1   # datos[0]
+mem 0x1000C = 3   # datos[1]
+mem 0x10010 = 9   # datos[2]
+mem 0x10014 = 10   # datos[3]
+mem 0x10018 = 27   # datos[4]
+mem 0x1001C = 38   # datos[5]
+mem 0x10020 = 43   # datos[6]
+mem 0x10024 = 82   # datos[7]

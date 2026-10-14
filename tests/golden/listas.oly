@@ -1,0 +1,17 @@
+list ent v[10];
+list ent m[3][4];
+list ent w = [1, 0x2A, 3];
+list ent q = [[1, 2], [3, 4]];
+ent def f(list ent a, ent n) {
+    ent s = 0;
+    para (ent i = 0; i < n; i += 1) {
+        s += a[i];
+    }
+    retorno (s);
+}
+vacio def main() {
+    v[0] = 5;
+    m[1][2] = v[0] + 0xFF;
+    m[1][2] -= 1;
+    para (; verdadero; ) { terminar; }
+}

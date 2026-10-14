@@ -1,0 +1,3 @@
+$ ESPERA: {ERROR 13}
+ent def f(ent a) { retorno (a); }
+ent y = llamar f(1, 2);

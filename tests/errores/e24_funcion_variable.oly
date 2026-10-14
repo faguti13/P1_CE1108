@@ -1,0 +1,3 @@
+$ ESPERA: {ERROR 24}
+ent def f() { retorno (1); }
+ent x = f;

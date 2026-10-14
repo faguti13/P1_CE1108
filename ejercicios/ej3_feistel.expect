@@ -1,0 +1,33 @@
+mem 0x10030 = 0x01234567   # copia[0]
+mem 0x10034 = 0x89ABCDEF   # copia[1]
+mem 0x10038 = 0xDEADBEEF   # copia[2]
+mem 0x1003C = 0x0BADF00D   # copia[3]
+mem 0x10040 = 0x00000000   # copia[4]
+mem 0x10044 = 0x00000000   # copia[5]
+mem 0x10048 = 0xFFFFFFFF   # copia[6]
+mem 0x1004C = 0x00000001   # copia[7]
+mem 0x10058 = 0x54C224BE   # cifrado[0]
+mem 0x1005C = 0xC44FBD5C   # cifrado[1]
+mem 0x10060 = 0x1681D213   # cifrado[2]
+mem 0x10064 = 0x3BC29129   # cifrado[3]
+mem 0x10068 = 0x2918CB13   # cifrado[4]
+mem 0x1006C = 0x94AAF892   # cifrado[5]
+mem 0x10070 = 0xD7398612   # cifrado[6]
+mem 0x10074 = 0x194C6854   # cifrado[7]
+mem 0x10008 = 0x01234567   # claro[0] tras descifrar
+mem 0x1000C = 0x89ABCDEF   # claro[1] tras descifrar
+mem 0x10010 = 0xDEADBEEF   # claro[2] tras descifrar
+mem 0x10014 = 0x0BADF00D   # claro[3] tras descifrar
+mem 0x10018 = 0x00000000   # claro[4] tras descifrar
+mem 0x1001C = 0x00000000   # claro[5] tras descifrar
+mem 0x10020 = 0xFFFFFFFF   # claro[6] tras descifrar
+mem 0x10024 = 0x00000001   # claro[7] tras descifrar
+mem 0x10078 = 1   # igual
+mem 0x1007C = 0x199FF761   # suma de control del texto cifrado
+mem 0x10080 = 1   # SR.AUTH antes de cerrar la sesion
+sr = 0x0
+# las subllaves nunca quedan en un registro
+forbid 0x00112233
+forbid 0x44556677
+forbid 0x8899AABB
+forbid 0xCCDDEEFF

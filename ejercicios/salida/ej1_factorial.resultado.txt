@@ -1,0 +1,2 @@
+HALT cycles=203 bundles=172 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+ej1_factorial: PASS

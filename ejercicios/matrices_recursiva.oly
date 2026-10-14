@@ -1,0 +1,44 @@
+$ matrices_recursiva.oly - Recursion con listas por referencia y llamadas dentro
+$ de expresiones (los temporales vivos se derraman a la pila en cada llamada).
+$   total    = suma de todos los elementos de la matriz (1+2+...+6 = 21)
+$   fib10    = 55
+$   fact6    = 720
+
+list ent m = [[1, 2, 3], [4, 5, 6]];
+ent total = 0;
+ent fib10 = 0;
+ent fact6 = 0;
+
+ent def suma_fila(list ent a, ent i, ent j, ent cols) {
+    si (j >= cols) {
+        retorno (0);
+    }
+    retorno (a[i][j] + llamar suma_fila(a, i, j + 1, cols));
+}
+
+ent def suma_matriz(list ent a, ent i, ent filas, ent cols) {
+    si (i >= filas) {
+        retorno (0);
+    }
+    retorno (llamar suma_fila(a, i, 0, cols) + llamar suma_matriz(a, i + 1, filas, cols));
+}
+
+ent def fib(ent n) {
+    si (n < 2) {
+        retorno (n);
+    }
+    retorno (llamar fib(n - 1) + llamar fib(n - 2));
+}
+
+ent def fact(ent n) {
+    si (n <= 1) {
+        retorno (1);
+    }
+    retorno (n * llamar fact(n - 1));
+}
+
+vacio def main() {
+    total = llamar suma_matriz(m, 0, 2, 3);
+    fib10 = llamar fib(10);
+    fact6 = llamar fact(6);
+}
