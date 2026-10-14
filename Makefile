@@ -11,7 +11,15 @@
 #   make pdf          regenera docs/04_ejemplos.md y arma docs/JAF-compilador.pdf
 #   make prueba       vuelca los tokens de ejemplos/prueba.oly (-t) y los comentarios descartados (-v)
 #   make arbol        imprime el arbol de ese mismo programa
+#   make tabla        tabla de simbolos de SRC (por defecto ejercicios/ej1_factorial.oly)
+#   make json         AST en JSON, para pegarlo en https://jsoncrack.com/editor
+#   make asm          ensamblador con direccion de byte (@) y linea del .oly
+#   make bin          binario .bin
+#   make paquetes     direccion, hexadecimal y ensamblador lado a lado
+#   make vista        tabla, json, asm, bin y paquetes en build/vista/
 #   make clean        borra build/
+#
+#   Otro fuente: make vista SRC=ejercicios/ej3_feistel.oly
 
 # Variables de compilación y herramientas.
 # EXTRA está vacía por defecto; make asan la usa para agregar los sanitizers
@@ -32,7 +40,13 @@ OBJS = build/main.o build/lexer.o build/parser.o build/ast.o build/tokens.o \
        build/isa.o build/semantico.o build/codegen.o build/planificador.o \
        build/emisor.o build/ensamblador.o
 
-.PHONY: all prueba arbol clean test e2e ejercicios asan sync-isa xcheck pdf
+# Fuente y carpeta de las vistas para el avance (make tabla, json, asm, bin, paquetes, vista).
+SRC   ?= ejercicios/ej1_factorial.oly
+VISTA ?= build/vista
+BASE  := $(notdir $(basename $(SRC)))
+
+.PHONY: all prueba arbol clean test e2e ejercicios asan sync-isa xcheck pdf \
+        tabla json asm bin paquetes vista
 
 # Define el target por defecto como build/jaf.
 all: build/jaf
@@ -80,6 +94,42 @@ prueba: build/jaf
 # Parsea el ejemplo e imprime el árbol AST.
 arbol: build/jaf
 	./build/jaf --arbol ejemplos/prueba.oly
+
+# Tabla de simbolos (-m). El .bin queda en build/vista/ por si se quiere el resto.
+tabla: build/jaf
+	mkdir -p $(VISTA)
+	./build/jaf -m -o $(VISTA)/$(BASE).bin $(SRC) > $(VISTA)/$(BASE).tabla.txt
+	cat $(VISTA)/$(BASE).tabla.txt
+
+# AST en JSON. Se pega el archivo en https://jsoncrack.com/editor (Graph).
+json: build/jaf
+	mkdir -p $(VISTA)
+	./build/jaf --json $(SRC) > $(VISTA)/$(BASE).json
+	@echo "JSON: $(VISTA)/$(BASE).json"
+	@echo "Visualizar: abrir https://jsoncrack.com/editor y cargar ese archivo"
+
+# Ensamblador. Cada linea de codigo termina con ; @direccion y oly:linea.
+# @direccion es el byte donde empieza ese bundle en el .bin (16 bytes por bundle).
+asm: build/jaf
+	mkdir -p $(VISTA)
+	./build/jaf -s -o $(VISTA)/$(BASE).bin $(SRC)
+	@echo "ensamblador: $(VISTA)/$(BASE).asm"
+	@echo "binario:     $(VISTA)/$(BASE).bin"
+
+# Solo el binario.
+bin: build/jaf
+	mkdir -p $(VISTA)
+	./build/jaf -o $(VISTA)/$(BASE).bin $(SRC)
+	@echo "binario: $(VISTA)/$(BASE).bin"
+
+# Direccion, 4 palabras en hexadecimal y el ensamblador del mismo bundle.
+paquetes: build/jaf
+	mkdir -p $(VISTA)
+	./build/jaf -p -o $(VISTA)/$(BASE).bin $(SRC) > $(VISTA)/$(BASE).paquetes.txt
+	cat $(VISTA)/$(BASE).paquetes.txt
+
+# Las cinco vistas del mismo fuente, en build/vista/.
+vista: tabla json asm paquetes
 
 # Limpia la carpeta de salida build/ y los binarios generados.
 clean:

@@ -1051,19 +1051,200 @@ int sem_analizar(Nodo *raiz, const char *archivo)
     return sem.errores; /*Numero total de errores encontrados*/
 }
 
+/* Una llamada: desde == NULL es el arranque _inicio. */
+typedef struct Arista {
+    Simbolo *desde;
+    Simbolo *hacia;
+} Arista;
+
+/* fp conocido de una entrada a una funcion. fn == NULL es _inicio. */
+typedef struct Act {
+    Simbolo *fn;
+    long fp;
+    int padre;
+} Act;
+
+/* Junta llamadas directas. El sp no cambia dentro de una funcion, asi que
+ * basta una arista por par llamador-llamado. */
+static void acumular_llamadas(Nodo *n, Simbolo *desde, Arista *a, int *na)
+{
+    int i, ya;
+
+    if (!n || *na >= 256) {
+        return;
+    }
+    if (n->tipo == NODO_FUNCION) {
+        acumular_llamadas(hijo_n(n, 2), n->sim, a, na);
+        acumular_llamadas(n->sig, desde, a, na);
+        return;
+    }
+    if (n->tipo == NODO_LLAMADA && n->sim && n->sim->clase == CL_FUNC) {
+        ya = 0;
+        for (i = 0; i < *na; i++) {
+            if (a[i].desde == desde && a[i].hacia == n->sim) {
+                ya = 1;
+            }
+        }
+        if (!ya) {
+            a[*na].desde = desde;
+            a[*na].hacia = n->sim;
+            (*na)++;
+        }
+    }
+    acumular_llamadas(n->hijo, desde, a, na);
+    acumular_llamadas(n->sig, desde, a, na);
+}
+
+static void agregar_arista(Arista *a, int *na, Simbolo *desde, Simbolo *hacia)
+{
+    int i;
+    if (!hacia || *na >= 256) {
+        return;
+    }
+    for (i = 0; i < *na; i++) {
+        if (a[i].desde == desde && a[i].hacia == hacia) {
+            return;
+        }
+    }
+    a[*na].desde = desde;
+    a[*na].hacia = hacia;
+    (*na)++;
+}
+
+/* sp con el que esta activacion llama: fp menos el marco, o el tope de
+ * pila menos el marco de _inicio. */
+static long sp_de(const Act *act)
+{
+    if (!act->fn) {
+        return MEM_STACK_TOP - sem.marco_inicio;
+    }
+    return act->fp - act->fn->marco;
+}
+
+/* fp de cada entrada. Una recursion no se persigue: el fp bajaria en cada
+ * llamada y no hay un solo numero. Se marca la funcion. */
+static int calcular_fp(Act *acts, int *nacts, Simbolo **rec, int *nrec)
+{
+    Arista aristas[256];
+    int na = 0, i, e, p, visto, en_cadena;
+    Simbolo *main_fn = NULL;
+
+    *nacts = 0;
+    *nrec = 0;
+    if (ast_raiz) {
+        acumular_llamadas(ast_raiz, NULL, aristas, &na);
+    }
+    for (i = 0; i < sem.n_todos; i++) {
+        if (sem.todos[i]->clase == CL_FUNC && !strcmp(sem.todos[i]->nombre, "main")) {
+            main_fn = sem.todos[i];
+        }
+    }
+    agregar_arista(aristas, &na, NULL, main_fn);
+
+    acts[0].fn = NULL;
+    acts[0].fp = MEM_STACK_TOP;
+    acts[0].padre = -1;
+    *nacts = 1;
+
+    for (i = 0; i < *nacts && *nacts < 128; i++) {
+        long sp = sp_de(&acts[i]);
+        for (e = 0; e < na; e++) {
+            if (aristas[e].desde != acts[i].fn) {
+                continue;
+            }
+            en_cadena = 0;
+            for (p = i; p >= 0; p = acts[p].padre) {
+                if (acts[p].fn == aristas[e].hacia) {
+                    en_cadena = 1;
+                }
+            }
+            if (en_cadena) {
+                visto = 0;
+                for (p = 0; p < *nrec; p++) {
+                    if (rec[p] == aristas[e].hacia) {
+                        visto = 1;
+                    }
+                }
+                if (!visto && *nrec < 64) {
+                    rec[(*nrec)++] = aristas[e].hacia;
+                }
+                continue;
+            }
+            visto = 0;
+            for (p = 0; p < *nacts; p++) {
+                if (acts[p].fn == aristas[e].hacia && acts[p].fp == sp) {
+                    visto = 1;
+                }
+            }
+            if (!visto && *nacts < 128) {
+                acts[*nacts].fn = aristas[e].hacia;
+                acts[*nacts].fp = sp;
+                acts[*nacts].padre = i;
+                (*nacts)++;
+            }
+        }
+    }
+    return 0;
+}
+
+static int es_recursiva(Simbolo **rec, int nrec, const Simbolo *fn)
+{
+    int i;
+    for (i = 0; i < nrec; i++) {
+        if (rec[i] == fn) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static Simbolo *funcion_de(const char *nombre)
+{
+    int i;
+    if (!nombre) {
+        return NULL;
+    }
+    for (i = 0; i < sem.n_todos; i++) {
+        if (sem.todos[i]->clase == CL_FUNC && !strcmp(sem.todos[i]->nombre, nombre)) {
+            return sem.todos[i];
+        }
+    }
+    return NULL;
+}
+
 /*Imprime la tabla de simbolos con info de cada variable, parametro y funcion
-  Tambien muestra los tipos,ambitos, ubicaciones de memoria y el tamano del area global
+  Tambien muestra los tipos, ambitos, el gp/fp usado y la direccion en hexadecimal.
 */
 void sem_imprimir_tabla(FILE *f)
 {
-    int i;
+    int i, k, nacts = 0, nrec = 0, nfp, rec_fn;
+    Act acts[128];
+    Simbolo *rec[64];
+    long fps[8];
+
+    calcular_fp(acts, &nacts, rec, &nrec);
+
+    fprintf(f, "gp = 0x%lX (fijo, registro r28). direccion = gp + desplazamiento\n",
+            (unsigned long)MEM_GP);
+    fprintf(f, "fp de _inicio = 0x%lX (tope de pila). Al llamar, sp = 0x%lX (marco %ld B)\n",
+            (unsigned long)MEM_STACK_TOP, (unsigned long)sp_de(&acts[0]), sem.marco_inicio);
+    for (i = 1; i < nacts; i++) {
+        fprintf(f, "fp de %s = 0x%lX", acts[i].fn->nombre, (unsigned long)acts[i].fp);
+        if (es_recursiva(rec, nrec, acts[i].fn)) {
+            fprintf(f, " (1a entrada; en cada llamada recursiva baja %ld B)", acts[i].fn->marco);
+        }
+        fprintf(f, ". Al llamar, sp = 0x%lX (marco %ld B)\n",
+                (unsigned long)sp_de(&acts[i]), acts[i].fn->marco);
+    }
+    fprintf(f, "\n");
+
     /*Encabezados de columnas*/
     fprintf(f, "%-18s %-8s %-12s %-5s %-14s %-9s %s\n", "nombre", "clase", "tipo", "amb.",
             "funcion", "linea:col", "direccion");
     /*Recorre todos los simbolos registrados durante el analisis*/
     for (i = 0; i < sem.n_todos; i++) {
         const Simbolo *s = sem.todos[i];
-        char tipo[40], dir[64];
+        char tipo[40], dir[256];
         /*Convierte clase del simbolo en un texto*/
         const char *cl = s->clase == CL_VAR ? "var" : s->clase == CL_PARAM ? "param" : "func";
         /*Construye el texto del tipo
@@ -1080,19 +1261,53 @@ void sem_imprimir_tabla(FILE *f)
                 /*Una lista puede tener dimensiones desconocidas*/
                 snprintf(tipo, sizeof tipo, "%s (ref)", ty_nombre(s->ty));
             }
-        /*Construye la info de ubicacion
-        Para funciones se muestra cant de parametros y el marco
-        para variables, su direccion relativa a gp o fp
-        */
         } else {
             snprintf(tipo, sizeof tipo, "%s", ty_nombre(s->ty));
         }
         if (s->clase == CL_FUNC) {
-            snprintf(dir, sizeof dir, "%d param, marco %ld B", s->nparams, s->marco);
+            nfp = 0;
+            for (k = 0; k < nacts && nfp < 8; k++) {
+                if (acts[k].fn == s) {
+                    fps[nfp++] = acts[k].fp;
+                }
+            }
+            if (nfp == 0) {
+                snprintf(dir, sizeof dir, "%d param, marco %ld B", s->nparams, s->marco);
+            } else if (nfp == 1) {
+                snprintf(dir, sizeof dir, "%d param, marco %ld B, fp=0x%lX", s->nparams, s->marco,
+                         (unsigned long)fps[0]);
+            } else {
+                int u = snprintf(dir, sizeof dir, "%d param, marco %ld B, fp=", s->nparams, s->marco);
+                for (k = 0; k < nfp && u < (int)sizeof dir; k++) {
+                    u += snprintf(dir + u, sizeof dir - (size_t)u, "%s0x%lX", k ? "," : "",
+                                  (unsigned long)fps[k]);
+                }
+            }
         } else if (s->alm == AL_GLOBAL) {
-            snprintf(dir, sizeof dir, "gp%+ld (0x%lX)", s->offset, (unsigned long)(MEM_GP + s->offset));
+            snprintf(dir, sizeof dir, "gp%+ld = 0x%lX", s->offset,
+                     (unsigned long)(MEM_GP + s->offset));
         } else {
-            snprintf(dir, sizeof dir, "fp%+ld", s->offset);
+            Simbolo *fn = funcion_de(s->funcion);
+            nfp = 0;
+            rec_fn = es_recursiva(rec, nrec, fn);
+            for (k = 0; k < nacts && nfp < 8; k++) {
+                if (acts[k].fn == fn) {
+                    fps[nfp++] = acts[k].fp;
+                }
+            }
+            if (nfp == 0) {
+                snprintf(dir, sizeof dir, "fp%+ld (sin llamada a %s)", s->offset,
+                         s->funcion ? s->funcion : "?");
+            } else {
+                int u = snprintf(dir, sizeof dir, "fp%+ld =", s->offset);
+                for (k = 0; k < nfp && u < (int)sizeof dir; k++) {
+                    u += snprintf(dir + u, sizeof dir - (size_t)u, "%s0x%lX", k ? ", " : " ",
+                                  (unsigned long)(fps[k] + s->offset));
+                }
+                if (rec_fn && u < (int)sizeof dir) {
+                    snprintf(dir + u, sizeof dir - (size_t)u, " (1a entrada)");
+                }
+            }
         }
         /*Imprime los datos del simbolo en una fila*/
         fprintf(f, "%-18s %-8s %-12s %-5d %-14s %4d:%-4d %s\n", s->nombre, cl, tipo, s->nivel,

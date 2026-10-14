@@ -48,6 +48,7 @@ static void uso(const char *programa)
             "  -x           la entrada es ensamblador (.asm): lo ensambla a binario\n"
             "  -v           modo detallado: fases, estadisticas y comentarios descartados\n"
             "  --arbol      imprime el arbol sintactico y termina\n"
+            "  --json       imprime el arbol en JSON y termina (jsoncrack.com)\n"
             "  --tokens     igual que -t\n"
             "  -h           esta ayuda\n"
             "\n"
@@ -225,7 +226,7 @@ int main(int argc, char **argv)
 {
     const char *ruta = NULL;
     const char *salida = NULL;
-    int opt_tokens = 0, opt_arbol = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
+    int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
     int opt_x = 0, opt_mem = 0, verboso = 0;
     char *salida_def = NULL;
     char *asm_ruta = NULL;
@@ -243,6 +244,8 @@ int main(int argc, char **argv)
             opt_tokens = 1;
         } else if (!strcmp(a, "--arbol")) {
             opt_arbol = 1;
+        } else if (!strcmp(a, "--json")) {
+            opt_json = 1;
         } else if (!strcmp(a, "-m")) {
             opt_tabla = 1;
         } else if (!strcmp(a, "-p")) {
@@ -335,6 +338,10 @@ int main(int argc, char **argv)
     if (opt_arbol) {
         printf("Archivo: %s\n", ruta);
         nodo_imprimir(ast_raiz, 0);
+        return 0;
+    }
+    if (opt_json) {
+        nodo_json(stdout, ast_raiz);
         return 0;
     }
 

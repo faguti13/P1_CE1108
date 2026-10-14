@@ -261,6 +261,160 @@ void nodo_imprimir(const Nodo *nodo, int nivel)
     }
 }
 
+static void json_indent(FILE *f, int nivel)
+{
+    fprintf(f, "%*s", nivel * 2, "");
+}
+
+static void json_str(FILE *f, const char *s)
+{
+    fputc('"', f);
+    if (s) {
+        for (; *s; s++) {
+            unsigned char c = (unsigned char)*s;
+            if (c == '"' || c == '\\') {
+                fprintf(f, "\\%c", c);
+            } else if (c == '\n') {
+                fputs("\\n", f);
+            } else if (c == '\r') {
+                fputs("\\r", f);
+            } else if (c == '\t') {
+                fputs("\\t", f);
+            } else if (c < 0x20) {
+                fprintf(f, "\\u%04x", c);
+            } else {
+                fputc(c, f);
+            }
+        }
+    }
+    fputc('"', f);
+}
+
+/* Emite un objeto. `rol` es el papel del nodo respecto de su padre
+ * (condicion, cuerpo, ...); NULL si el padre no le pone nombre. */
+static void json_nodo(FILE *f, const Nodo *nodo, const char *rol, int nivel)
+{
+    const Nodo *hijo;
+    int primero = 1;
+    const char *roles[4];
+    int nroles = 0;
+    int i;
+
+    if (!nodo) {
+        fputs("null", f);
+        return;
+    }
+    fputs("{\n", f);
+    if (rol) {
+        json_indent(f, nivel + 1);
+        fputs("\"rol\": ", f);
+        json_str(f, rol);
+        fputs(",\n", f);
+    }
+    json_indent(f, nivel + 1);
+    fputs("\"tipo\": ", f);
+    json_str(f, nombre_nodo(nodo->tipo));
+    if (nodo->texto && nodo->texto[0] != '\0') {
+        fputs(",\n", f);
+        json_indent(f, nivel + 1);
+        fputs("\"texto\": ", f);
+        json_str(f, nodo->texto);
+    }
+    if (nodo->tipo == NODO_LITERAL) {
+        fprintf(f, ",\n");
+        json_indent(f, nivel + 1);
+        fprintf(f, "\"valor\": %ld", nodo->val);
+    }
+    fprintf(f, ",\n");
+    json_indent(f, nivel + 1);
+    fprintf(f, "\"linea\": %d,\n", nodo->linea);
+    json_indent(f, nivel + 1);
+    fprintf(f, "\"col\": %d,\n", nodo->col);
+    json_indent(f, nivel + 1);
+    fputs("\"hijos\": [", f);
+
+    switch (nodo->tipo) {
+    case NODO_FUNCION:
+        roles[0] = "tipo"; roles[1] = "parametros"; roles[2] = "cuerpo";
+        nroles = 3;
+        break;
+    case NODO_PARAMETRO:
+        roles[0] = "tipo";
+        nroles = 1;
+        break;
+    case NODO_RETORNO:
+        roles[0] = "expresion";
+        nroles = 1;
+        break;
+    case NODO_SI:
+        roles[0] = "condicion"; roles[1] = "entonces"; roles[2] = "sino";
+        nroles = 3;
+        break;
+    case NODO_MIENTRAS:
+        roles[0] = "condicion"; roles[1] = "cuerpo";
+        nroles = 2;
+        break;
+    case NODO_DECLARACION:
+        roles[0] = "tipo"; roles[1] = "valor";
+        nroles = 2;
+        break;
+    case NODO_ASIGNACION:
+        roles[0] = "destino"; roles[1] = "valor";
+        nroles = 2;
+        break;
+    case NODO_PARA:
+        roles[0] = "inicio"; roles[1] = "condicion";
+        roles[2] = "actualizacion"; roles[3] = "cuerpo";
+        nroles = 4;
+        break;
+    case NODO_DECL_LISTA:
+        roles[0] = "tipo"; roles[1] = "dimensiones"; roles[2] = "valor";
+        nroles = 3;
+        break;
+    default:
+        break;
+    }
+
+    if (nroles) {
+        for (i = 0; i < nroles; i++) {
+            hijo = hijo_en(nodo, i);
+            if (!hijo) {
+                continue;
+            }
+            if (!primero) {
+                fputc(',', f);
+            }
+            primero = 0;
+            fputc('\n', f);
+            json_indent(f, nivel + 2);
+            json_nodo(f, hijo, roles[i], nivel + 2);
+        }
+    } else {
+        for (hijo = nodo->hijo; hijo; hijo = hijo->sig) {
+            if (!primero) {
+                fputc(',', f);
+            }
+            primero = 0;
+            fputc('\n', f);
+            json_indent(f, nivel + 2);
+            json_nodo(f, hijo, nodo->tipo == NODO_LLAMADA ? "argumento" : NULL, nivel + 2);
+        }
+    }
+    if (!primero) {
+        fputc('\n', f);
+        json_indent(f, nivel + 1);
+    }
+    fputs("]\n", f);
+    json_indent(f, nivel);
+    fputc('}', f);
+}
+
+void nodo_json(FILE *f, const Nodo *nodo)
+{
+    json_nodo(f, nodo, NULL, 0);
+    fputc('\n', f);
+}
+
 void nodo_liberar(Nodo *nodo)
 {
     if (!nodo) {

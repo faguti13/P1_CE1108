@@ -17,25 +17,55 @@ void emitir_asm(const Programa *p, FILE *f, const char *origen)
 
     fprintf(f, "; generado por jaf desde %s\n", origen);
     fprintf(f, "; un bundle por linea, slots 0..3 separados por '|'\n");
+    fprintf(f, "; @xxxxxxxx es el byte del bundle en el .bin (cada bundle ocupa 16)\n");
+    fprintf(f, "; oly:N es la linea del fuente que produjo la instruccion\n");
     for (i = 0; i < p->n; i++) {
         const Bundle *b = &p->b[i];
         int primero = 1;
+        int oly[4], noly = 0;
         char buf[160];
+        char cuerpo[700];
+        size_t usado = 0;
 
         for (k = 0; k < b->n_etq; k++) {
             fprintf(f, "%s:\n", b->etiquetas[k]);
         }
-        fputs("    ", f);
+        cuerpo[0] = '\0';
         for (s = 0; s < 4; s++) {
+            int t, ya;
             if (!b->usado[s]) {
                 continue;
             }
             ins_texto(&b->ins[s], buf, sizeof buf);
-            fprintf(f, "%s%s", primero ? "" : " | ", buf);
+            if (!primero && usado + 3 < sizeof cuerpo) {
+                memcpy(cuerpo + usado, " | ", 3);
+                usado += 3;
+            }
             primero = 0;
+            if (usado + strlen(buf) < sizeof cuerpo) {
+                memcpy(cuerpo + usado, buf, strlen(buf));
+                usado += strlen(buf);
+                cuerpo[usado] = '\0';
+            }
+            ya = 0;
+            for (t = 0; t < noly; t++) {
+                if (oly[t] == b->ins[s].linea) {
+                    ya = 1;
+                }
+            }
+            if (!ya && b->ins[s].linea > 0 && noly < 4) {
+                oly[noly++] = b->ins[s].linea;
+            }
         }
         if (primero) {
-            fputs("NOP", f);
+            snprintf(cuerpo, sizeof cuerpo, "NOP");
+        }
+        fprintf(f, "    %-64s ; @%08lx", cuerpo, (unsigned long)b->dir);
+        if (noly > 0) {
+            fputs("  oly:", f);
+            for (k = 0; k < noly; k++) {
+                fprintf(f, "%s%d", k ? "," : "", oly[k]);
+            }
         }
         fputc('\n', f);
     }

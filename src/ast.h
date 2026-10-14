@@ -1,6 +1,8 @@
 #ifndef AST_H
 #define AST_H
 
+#include <stdio.h>
+
 /*
  * Arbol sintactico.
  *
@@ -68,6 +70,8 @@ Nodo *nodo_binario(const char *op, Nodo *izq, Nodo *der);
 Nodo *nodo_unario(const char *op, Nodo *expr);
 
 void nodo_imprimir(const Nodo *nodo, int nivel);
+/* JSON del arbol, para pegarlo en un visualizador (jsoncrack.com). */
+void nodo_json(FILE *f, const Nodo *nodo);
 void nodo_liberar(Nodo *nodo);
 
 #endif
