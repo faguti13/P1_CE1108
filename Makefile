@@ -17,6 +17,7 @@
 #   make bin          binario .bin
 #   make paquetes     direccion, hexadecimal y ensamblador lado a lado
 #   make vista        tabla, json, asm, bin y paquetes en build/vista/
+#   make ide          abre el prototipo de IDE (ventana propia; logica en jaf --ide)
 #   make clean        borra build/
 #
 #   Otro fuente: make vista SRC=ejercicios/ej3_feistel.oly
@@ -37,8 +38,8 @@ VLIW_DIR ?= ../vliw_grupo2
 # Orden de las fases: CLI, léxico, sintáctico, AST, tokens, ISA, semántico, codegen,
 # planificador, emisor del .asm y ensamblador propio (-x: de .asm a .bin).
 OBJS = build/main.o build/lexer.o build/parser.o build/ast.o build/tokens.o \
-       build/isa.o build/semantico.o build/codegen.o build/planificador.o \
-       build/emisor.o build/ensamblador.o
+    build/isa.o build/semantico.o build/codegen.o build/planificador.o \
+    build/emisor.o build/ensamblador.o build/ide.o
 
 # Fuente y carpeta de las vistas para el avance (make tabla, json, asm, bin, paquetes, vista).
 SRC   ?= ejercicios/ej1_factorial.oly
@@ -46,7 +47,7 @@ VISTA ?= build/vista
 BASE  := $(notdir $(basename $(SRC)))
 
 .PHONY: all prueba arbol clean test e2e ejercicios asan sync-isa xcheck pdf \
-        tabla json asm bin paquetes vista
+        tabla json asm bin paquetes vista ide
 
 # Define el target por defecto como build/jaf.
 all: build/jaf
@@ -62,7 +63,7 @@ build/jaf: $(OBJS)
 # Lista de todos los .h. Si cambia cualquiera, se recompilan todos los .c
 # (incluyan o no ese .h): es simple y nunca deja un objeto desactualizado.
 HDRS = src/ast.h src/comun.h src/isa.h src/semantico.h src/codegen.h src/planificador.h \
-       src/emisor.h src/ensamblador.h src/tokens.h
+       src/emisor.h src/ensamblador.h src/tokens.h src/ide.h
 
 # Regla genérica: cada src/X.c produce build/X.o y depende de todos los .h de HDRS.
 build/%.o: src/%.c $(HDRS) | build
@@ -130,6 +131,17 @@ paquetes: build/jaf
 
 # Las cinco vistas del mismo fuente, en build/vista/.
 vista: tabla json asm paquetes
+
+# Prototipo de IDE: ventana propia Qt (estilo VS Code). Logica: jaf --ide (C).
+# En Ubuntu/WSL: sudo apt install python3-pyqt6
+ide: build/jaf
+	@python3 -c "import PyQt6" 2>/dev/null || python3 -c "import PySide6" 2>/dev/null || { \
+	  echo "falta Qt. En WSL/Ubuntu:"; \
+	  echo "  sudo apt install python3-pyqt6"; \
+	  echo "  # o: pip install PyQt6"; \
+	  echo "Luego: make ide"; \
+	  exit 1; }
+	JAF=./build/jaf python3 ide/jaf_ide.py
 
 # Limpia la carpeta de salida build/ y los binarios generados.
 clean:

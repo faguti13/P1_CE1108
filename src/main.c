@@ -11,6 +11,7 @@
 #include "codegen.h"
 #include "emisor.h"
 #include "ensamblador.h"
+#include "ide.h"
 #include "isa.h"
 #include "planificador.h"
 #include "semantico.h"
@@ -49,6 +50,7 @@ static void uso(const char *programa)
             "  -v           modo detallado: fases, estadisticas y comentarios descartados\n"
             "  --arbol      imprime el arbol sintactico y termina\n"
             "  --json       imprime el arbol en JSON y termina (jsoncrack.com)\n"
+            "  --ide        JSON para el prototipo de IDE (varios .oly; ver src/ide.c)\n"
             "  --tokens     igual que -t\n"
             "  -h           esta ayuda\n"
             "\n"
@@ -227,9 +229,11 @@ int main(int argc, char **argv)
     const char *ruta = NULL;
     const char *salida = NULL;
     int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
-    int opt_x = 0, opt_mem = 0, verboso = 0;
+    int opt_x = 0, opt_mem = 0, opt_ide = 0, verboso = 0;
     char *salida_def = NULL;
     char *asm_ruta = NULL;
+    char *rutas[32];
+    int n_rutas = 0;
     int i, estado = 0;
 
     for (i = 1; i < argc; i++) {
@@ -246,6 +250,8 @@ int main(int argc, char **argv)
             opt_arbol = 1;
         } else if (!strcmp(a, "--json")) {
             opt_json = 1;
+        } else if (!strcmp(a, "--ide")) {
+            opt_ide = 1;
         } else if (!strcmp(a, "-m")) {
             opt_tabla = 1;
         } else if (!strcmp(a, "-p")) {
@@ -271,17 +277,26 @@ int main(int argc, char **argv)
             fprintf(stderr, "opcion desconocida: %s\n", a);
             uso(argv[0]);
             return 2;
-        } else if (ruta) {
-            uso(argv[0]);
+        } else if (n_rutas >= 32) {
+            fprintf(stderr, "demasiados archivos\n");
             return 2;
         } else {
-            ruta = a;
+            rutas[n_rutas++] = (char *)a;
         }
     }
-    if (!ruta) {
+    if (opt_ide) {
+        if (n_rutas < 1) {
+            fprintf(stderr, "uso: %s --ide <a.oly> [b.oly ...]\n", argv[0]);
+            return 2;
+        }
+        ide_emitir_json(rutas, n_rutas);
+        return 0;
+    }
+    if (n_rutas != 1) {
         uso(argv[0]);
         return 2;
     }
+    ruta = rutas[0];
     if (!salida) {
         char *b = base_de(ruta);
         salida_def = malloc(strlen(b) + 5);
