@@ -9,6 +9,42 @@
 #include "ide.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Lista global de errores(Maximo 100)
+static DiagError lista_errores[100];
+static int num_errores = 0;
+
+//Limpia la lista de errores
+void ide_limpiar_errores(void)
+{
+    for (int i = 0; i < num_errores; i++) {
+        free(lista_errores[i].archivo);
+        free(lista_errores[i].mensaje);
+        free(lista_errores[i].severidad);
+    }
+    num_errores = 0;
+}
+
+
+/* Registra un error en la lista global
+ * Se llama desde semantico y main
+ */
+void ide_registrar_error(const char *archivo, int linea, int col, int codigo, 
+                         const char *mensaje, const char *severidad)
+{
+    if (num_errores >= 100) {
+        return; /* Lista llena */
+    }
+    DiagError *e = &lista_errores[num_errores++];
+    e->archivo = strdup(archivo ? archivo : "desconocido");
+    e->linea = linea;
+    e->col = col;
+    e->codigo = codigo;
+    e->mensaje = strdup(mensaje ? mensaje : "");
+    e->severidad = strdup(severidad ? severidad : "Error");
+}
 
 static void json_escape(FILE *f, const char *s)
 {
@@ -28,13 +64,28 @@ static void json_escape(FILE *f, const char *s)
     }
 }
 
-/* TODO: recorrer lexer/parser/semantico y emitir un diagnostic por error.
+/* Emite el arreglo JSON de diagnostics a partir de la lista global.
+   Recorrer lexer/parser/semantico y emitir un diagnostic por error.
  * Usar linea:col que ya imprimen yyerror y sem_analizar. */
 static void emitir_diagnostics(FILE *f, char **archivos, int n)
 {
     (void)archivos;
     (void)n;
-    fputs("[]", f);
+    fputs("[", f);
+        for (int i = 0; i < num_errores; i++) {
+        if (i > 0) {
+            fputs(",", f);
+        }
+        DiagError *e = &lista_errores[i];
+        fputs("{\n    \"file\": \"", f);      json_escape(f, e->archivo);
+        fputs("\",\n    \"line\": ", f);      fprintf(f, "%d", e->linea);
+        fputs(",\n    \"col\": ", f);         fprintf(f, "%d", e->col);
+        fputs(",\n    \"code\": \"", f);      fprintf(f, "%d", e->codigo);
+        fputs("\",\n    \"msg\": \"", f);     json_escape(f, e->mensaje);
+        fputs("\",\n    \"severity\": \"", f); json_escape(f, e->severidad);
+        fputs("\"\n  }", f);
+    }
+    fputs("]", f);
 }
 
 /* TODO: falta ';' (s01), llave (s02), parentesis. kind insert/replace. */

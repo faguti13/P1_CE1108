@@ -1368,7 +1368,11 @@ class JafIde(QMainWindow):
             r = table.rowCount()
             table.insertRow(r)
             for c, val in enumerate(proj(d)):
-                table.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+                texto = "" if val is None else str(val)
+                item = QTableWidgetItem(texto)
+                item.setToolTip(texto) 
+                table.setItem(r, c, item)
+                #table.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
 
     def _goto_err(self, row, _):
         item = self.tbl_err.item(row, 3)

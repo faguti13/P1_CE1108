@@ -17,6 +17,23 @@
  * }
  */
 
+typedef struct {
+    /* Estructura para guardar un error detectado por el compilador 
+    *Los datos son dados por el lexer,parser o semnatico segun corresponda
+    */
+    char *archivo;    //Nombre del archvo donde ocurrió el error
+    int linea;        //Número de línea
+    int col;          //Número de columna
+    int codigo;       //El número de error (10, 11, 12, 02, etc.)
+    char *mensaje;    //Descripción del erro
+    char *severidad;  //Si es "Error" o "Warning" 
+} DiagError;
+
+/*Registra un error en la lista global.Se llama desde semantico o main*/
+void ide_registrar_error(const char *archivo, int linea, int col, int codigo, const char *mensaje, const char *severidad);
+/*Limpia la lista de errores para cada ejecución del IDE*/
+void ide_limpiar_errores(void);
+
 void ide_emitir_json(char **archivos, int n);
 
 #endif

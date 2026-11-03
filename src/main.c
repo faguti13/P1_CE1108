@@ -16,6 +16,7 @@
 #include "planificador.h"
 #include "semantico.h"
 #include "tokens.h"
+#include "ide.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,7 @@ void yyerror(const char *mensaje)
 {
     hubo_sintaxis = 1;
     fprintf(stderr, "{ERROR 02}:%s:%d:%d:\"sintaxis: %s\"\n", archivo_actual, yylineno, yycol_token, mensaje);
+    ide_registrar_error(archivo_actual, yylineno, yycol_token, 2, mensaje, "Error");
 }
 
  /* Abre el archivo fuente como entrada del lexer y reinicia el estado de:
@@ -226,6 +228,7 @@ static int generar_salidas(Programa *p, const char *salida, int escribir_mem, in
    la línea de comandos es inválida. */
 int main(int argc, char **argv)
 {
+    ide_limpiar_errores();
     const char *ruta = NULL;
     const char *salida = NULL;
     int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
@@ -288,6 +291,20 @@ int main(int argc, char **argv)
         if (n_rutas < 1) {
             fprintf(stderr, "uso: %s --ide <a.oly> [b.oly ...]\n", argv[0]);
             return 2;
+        }
+        // Analizar los archivos para que se registren los errores
+        for (int k = 0; k < n_rutas; k++) {
+            archivo_actual = rutas[k];
+            if (abrir(rutas[k])) {
+                yyparse();
+                fclose(yyin);
+                yyin = NULL;
+                if (ast_raiz) {
+                    sem_analizar(ast_raiz, rutas[k]);
+                    nodo_liberar(ast_raiz);
+                    ast_raiz = NULL;
+                }
+            }
         }
         ide_emitir_json(rutas, n_rutas);
         return 0;
