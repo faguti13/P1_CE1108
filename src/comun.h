@@ -36,4 +36,8 @@ extern int traza_lexer;
 /* 1 si hubo un error lexico, incluido un comentario sin cerrar. */
 extern int lexer_hubo_error;
 
+/* Prepara el lexer para leer otro FILE* (multi-archivo: clones, --ide).
+ * Llama a yyrestart, vuelve a INITIAL y reinicia linea/columna. */
+void lexer_reiniciar(FILE *entrada);
+
 #endif

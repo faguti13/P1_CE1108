@@ -840,6 +840,7 @@ class JafIde(QMainWindow):
         self.tbl_sug = self._table(["LABEL", "KIND", "DETAIL"])
         self.tbl_clo = self._table(["TIPO", "A", "B"])
         self.tbl_err.cellDoubleClicked.connect(self._goto_err)
+        self.tbl_clo.cellDoubleClicked.connect(self._goto_clone)
         self.terminal = TerminalPane(ROOT)
         self.bottom.addTab(self.tbl_err, "PROBLEMAS")
         self.bottom.addTab(self.tbl_sug, "SUGERENCIAS")
@@ -1382,6 +1383,26 @@ class JafIde(QMainWindow):
             line = int(item.text())
         except ValueError:
             return
+        ed = self.current_editor()
+        if ed:
+            ed.goto_line(line)
+
+    def _goto_clone(self, row, col):
+        """Doble-clic en CLONES: abre el span A (cols 0–1) o B (col 2)."""
+        clones = self.ultimo.get("clones") or []
+        if row < 0 or row >= len(clones):
+            return
+        key = "b" if col >= 2 else "a"
+        span = clones[row].get(key) or {}
+        path = span.get("file")
+        try:
+            line = int(span.get("line") or 1)
+        except (TypeError, ValueError):
+            line = 1
+        if not path or not os.path.isfile(path):
+            self.sl.setText(f"clon: no se encuentra {path}")
+            return
+        self.open_path(path)
         ed = self.current_editor()
         if ed:
             ed.goto_line(line)

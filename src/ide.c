@@ -8,6 +8,8 @@
 
 #include "ide.h"
 
+#include "clones.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,13 +106,10 @@ static void emitir_completions(FILE *f, char **archivos, int n)
     fputs("[]", f);
 }
 
-/* TODO: Tipo I = mismos tokens; Tipo II = misma estructura, ids distintos.
- * Comparar entre todos los archivos de la lista (n >= 2). */
+/* Tipo I / Tipo II entre archivos — ver src/clones.c */
 static void emitir_clones(FILE *f, char **archivos, int n)
 {
-    (void)archivos;
-    (void)n;
-    fputs("[]", f);
+    clones_emitir_json(f, archivos, n);
 }
 
 void ide_emitir_json(char **archivos, int n)

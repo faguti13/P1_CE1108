@@ -277,3 +277,16 @@ static void error_lexico(const char *mensaje)
                 }
 
 %%
+
+void lexer_reiniciar(FILE *entrada)
+{
+    BEGIN(INITIAL);
+    yyrestart(entrada);
+    yylineno = 1;
+    yycol = 1;
+    yycol_token = 1;
+    lexer_hubo_error = 0;
+    yylval.texto = NULL;
+    yylval.entero = 0;
+    yylval.nodo = NULL;
+}
