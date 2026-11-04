@@ -10,6 +10,8 @@
 
 #include "clones.h"
 
+#include "fixes.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,13 +92,11 @@ static void emitir_diagnostics(FILE *f, char **archivos, int n)
     fputs("]", f);
 }
 
-/* TODO: falta ';' (s01), llave (s02), parentesis. kind insert/replace. */
 static void emitir_fixes(FILE *f, char **archivos, int n)
 {
-    (void)archivos;
-    (void)n;
-    fputs("[]", f);
+    fixes_emitir_json(f, archivos, n);
 }
+
 
 /* TODO: keywords JAF + simbolos visibles en el cursor (tabla de simbolos). */
 static void emitir_completions(FILE *f, char **archivos, int n)
