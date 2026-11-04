@@ -1858,7 +1858,7 @@ class JafIde(QMainWindow):
         if ed:
             ed.goto_line(line)
 
-    def aplicar_fix(self):
+    """def aplicar_fix(self):
         fixes = self.ultimo.get("fixes") or []
         if not fixes:
             self.sl.setText("sin fixes — TODO emitir_fixes() en src/ide.c")
@@ -1871,7 +1871,89 @@ class JafIde(QMainWindow):
         cur = QTextCursor(ed.document().findBlockByNumber(line - 1))
         cur.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor, col)
         cur.insertText(fx.get("text", ""))
-        self.sl.setText(f"fix en {line}:{col + 1}")
+        self.sl.setText(f"fix en {line}:{col + 1}")"""
+
+    
+
+    def aplicar_fix(self):
+        """Analiza y aplica todas las correcciones del archivo actual."""
+
+        # Ejecutar el analisis primero (mismo del boton analizar)
+        self.ultimo = {}
+        self.analizar()
+
+        # Obtener las correcciones detectadas
+        fixes = self.ultimo.get("fixes") or []
+
+        if not fixes:
+            self.sl.setText("No hay correcciones automaticas disponibles")
+            return
+
+        actual = self.current_path()
+        ed = self.current_editor()
+
+        if not ed or not actual:
+            return
+
+        # 3. Filtrar las correcciones del archivo actual
+        fixes = [
+            f for f in fixes
+            if os.path.abspath(f.get("file", "")) == os.path.abspath(actual)
+            and f.get("kind") == "insert"
+        ]
+
+        if not fixes:
+            self.sl.setText("No hay correcciones para este archivo")
+            return
+
+        inserciones = {}
+
+        for fx in fixes:
+            line = max(1, int(fx.get("line", 1)))
+            col = max(1, int(fx.get("col", 1)))
+            texto = fx.get("text", "")
+
+            posicion = (line, col)
+            inserciones[posicion] = inserciones.get(posicion, "") + texto
+
+        # ordenar desde el final hacia el inicio para q si las inserciones no desplazan las posiciones pendientes.
+        posiciones = sorted(inserciones.keys(), reverse=True)
+
+        cursor = QTextCursor(ed.document())
+        cursor.beginEditBlock()
+
+        for line, col in posiciones:
+            texto = inserciones[(line, col)]
+
+            bloque = ed.document().findBlockByNumber(line - 1)
+
+            if bloque.isValid():
+                posicion = bloque.position() + min(
+                    col - 1, len(bloque.text())
+                )
+                cursor.setPosition(posicion)
+
+            else:
+                # Correccion al final del archivo
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+
+                if ed.toPlainText() and not ed.toPlainText().endswith("\n"):
+                    cursor.insertText("\n")
+
+            cursor.insertText(texto)
+
+        cursor.endEditBlock()
+        ed.setTextCursor(cursor)
+
+        total = len(fixes)
+
+        self.guardar() # Guardar y volver a analizar
+        self.analizar()
+
+        self.sl.setText(
+            f"Se aplicaron {total} correcciones automaticas"
+        )
+
 
     def sugerir(self):
         """Ctrl+Espacio: abre el popup de sugerencias en el cursor."""

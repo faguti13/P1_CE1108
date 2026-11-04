@@ -1,7 +1,5 @@
 # Prototipo de IDE JAF
-
-Ventana **propia** con **Qt** (tema Dark+ tipo VS Code / IntelliJ).  
-**No** es una extensión de VS Code (el profesor lo rechazó).  
+  
 La lógica de análisis sigue en **C** (`jaf --ide` → `src/ide.c`).
 
 ## Dependencia
