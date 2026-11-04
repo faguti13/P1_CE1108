@@ -1,6 +1,7 @@
 #include "semantico.h"
 #include "comun.h"
 #include "isa.h"
+#include "ide.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -54,6 +55,8 @@ static void error(const Nodo *n, int codigo, const char *fmt, ...)
     fprintf(stderr, "{ERROR %d}:%s:%d:%d:\"%s\"\n", codigo, sem.archivo,
             n ? n->linea : 0, n ? n->col : 0, msg);
     sem.errores++;
+
+    ide_registrar_error(sem.archivo, n ? n->linea : 0, n ? n->col : 0, codigo, msg, "Error");
 }
 
 /* Convierte un tipo interno del analizador semantico 

@@ -1,0 +1,16 @@
+ent resultado = 0;
+
+ent def producto(ent m) {
+    ent tot = 1;
+    si (m < 0) {
+        retorno (-1);
+    }
+    para (ent k = 2; k <= m; k += 1) {
+        tot = tot * k;
+    }
+    retorno (tot);
+}
+
+vacio def main() {
+    resultado = llamar producto(5);
+}
