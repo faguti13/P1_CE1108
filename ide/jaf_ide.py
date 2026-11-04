@@ -17,33 +17,34 @@ import struct
 import subprocess
 import sys
 import termios
+from dataclasses import dataclass
 
 try:
-    from PyQt6.QtCore import Qt, QSize, QSocketNotifier
+    from PyQt6.QtCore import Qt, QSize, QSocketNotifier, QTimer
     from PyQt6.QtGui import (
         QAction, QColor, QFont, QKeySequence, QPainter, QTextCharFormat,
-        QTextCursor, QTextFormat, QSyntaxHighlighter,
+        QTextCursor, QTextFormat, QSyntaxHighlighter, QStandardItem, QStandardItemModel,
     )
     from PyQt6.QtWidgets import (
         QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
         QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QStatusBar,
         QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
         QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-        QListWidget, QDialog, QPushButton, QTextEdit,
+        QListWidget, QDialog, QPushButton, QTextEdit, QCompleter,
     )
 except ImportError:
     try:
-        from PySide6.QtCore import Qt, QSize, QSocketNotifier
+        from PySide6.QtCore import Qt, QSize, QSocketNotifier, QTimer
         from PySide6.QtGui import (
             QAction, QColor, QFont, QKeySequence, QPainter, QTextCharFormat,
-            QTextCursor, QTextFormat, QSyntaxHighlighter,
+            QTextCursor, QTextFormat, QSyntaxHighlighter, QStandardItem, QStandardItemModel,
         )
         from PySide6.QtWidgets import (
             QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
             QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QStatusBar,
             QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
             QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-            QListWidget, QDialog, QPushButton, QTextEdit,
+            QListWidget, QDialog, QPushButton, QTextEdit, QCompleter,
         )
     except ImportError:
         print(
@@ -111,6 +112,446 @@ QLineEdit { background:#3c3c3c; border:1px solid #3c3c3c; border-radius:3px;
   padding:6px; color:#ccc; }
 QLineEdit:focus { border:1px solid #007acc; }
 """
+
+
+# SUGERENCIAS DE CÓDIGO (LL(1))
+# Se analiza con LL(1) el código que está antes del cursor. Lo que queda en la
+# pila dice qué puede venir después, y eso es lo que se sugiere: palabras
+# clave, tipos, variables visibles en ese punto o funciones (después de llamar).
+# Pasos: 1 lexer, 2 gramática, 3 tabla LL(1), 4 analizador, 5 ámbitos,
+# 6 sugerencias, 7 popup.
+
+# 1. Lexer: mismas reglas que src/lexer.l. Los comentarios y las cadenas se
+# guardan como zonas, porque dentro de ellas no se sugiere nada.
+PALABRAS_CLAVE = {
+    "ent", "real", "doble", "bool", "caract", "cad", "vacio", "list",
+    "verdadero", "falso", "def", "llamar", "retorno", "terminar",
+    "si", "sino", "mientras", "para",
+}
+TIPOS = ("ent", "real", "doble", "bool", "caract", "cad")
+TOKEN_RE = re.compile(r"""
+    (?P<espacio>\s+)
+  | (?P<comentario>\$[^\n]*|[—–―][^—–―]*[—–―]?)
+  | (?P<cadena>"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?)
+  | (?P<num>0[xX][0-9A-Fa-f]+|[0-9]+)
+  | (?P<palabra>[A-Za-z_][A-Za-z0-9_]*)
+  | (?P<simbolo>\#import|==|!=|<=|>=|&&|\|\||\+=|-=|[-+*/%=<>!;,(){}\[\].:])
+  | (?P<error>.)
+""", re.VERBOSE)
+
+
+@dataclass
+class Token:
+    tipo: str       # terminal de la gramática: 'ent', ';', 'ID', 'NUM', ...
+    texto: str
+    ini: int        # posición donde empieza en el texto
+    fin: int        # posición donde termina (exclusiva)
+
+
+def ll1_tokenizar(texto):
+    """Devuelve (tokens, zonas). Cada zona es (inicio, fin) de un comentario o una cadena."""
+    toks, zonas = [], []
+    for m in TOKEN_RE.finditer(texto):
+        clase, lex, ini, fin = m.lastgroup, m.group(), m.start(), m.end()
+        if clase == "espacio":
+            continue
+        if clase in ("comentario", "cadena"):
+            if clase == "cadena":
+                cerrada = len(lex) > 1 and lex[-1] == lex[0]
+            else:                                    # el de `$` llega hasta el fin de línea
+                cerrada = len(lex) > 1 and lex[0] != "$" and lex[-1] in "—–―"
+            zonas.append((ini, fin if cerrada else fin + 1))  # abierta: incluye el final
+            if clase == "comentario":
+                continue
+            tipo = "CADENA" if lex[0] == '"' else "CARACTER"
+        elif clase == "palabra":
+            tipo = lex if lex in PALABRAS_CLAVE else "ID"
+        else:
+            tipo = {"num": "NUM", "simbolo": lex}.get(clase, "ERROR")
+        toks.append(Token(tipo, lex, ini, fin))
+    return toks, zonas
+
+
+# 2. Gramática LL(1): la de src/parser.y sin recursión por la izquierda,
+# factorizada y con la precedencia de operadores escrita en niveles.
+# Cada ID lleva una marca que no cambia el terminal, solo indica qué sugerir:
+#   ID@var    variable (en una expresión o a la izquierda de una asignación)
+#   ID@func   función, después de `llamar`
+#   ID@nuevo  nombre nuevo que se está declarando (no se sugiere nada)
+EPS = "ε"
+FIN = "$"
+INICIAL = "programa"
+GRAMATICA = {
+    "programa":          [["importaciones", "elementos"]],
+    "importaciones":     [["#import", "CADENA", ";", "importaciones"], []],
+    "elementos":         [["elemento", "elementos"], []],
+    "elemento":          [["tipo", "elem_tipo"],
+                          ["vacio", "def", "ID@nuevo", "(", "parametros", ")", "bloque"],
+                          ["sent_no_decl"]],
+    "elem_tipo":         [["def", "ID@nuevo", "(", "parametros", ")", "bloque"],
+                          ["ID@nuevo", "decl_resto"]],
+    "tipo":              [["tipo_escalar"], ["list", "tipo_escalar"]],
+    "tipo_escalar":      [[t] for t in TIPOS],
+    "parametros":        [["tipo", "ID@nuevo", "parametros_r"], []],
+    "parametros_r":      [[",", "tipo", "ID@nuevo", "parametros_r"], []],
+    "bloque":            [["{", "sentencias", "}"]],
+    "sentencias":        [["sentencia", "sentencias"], []],
+    "sentencia":         [["tipo", "ID@nuevo", "decl_resto"], ["sent_no_decl"]],
+    "sent_no_decl":      [["ID@var", "indice_opt", "op_asig", "expresion", ";"],
+                          ["retorno", "retorno_resto"],
+                          ["llamar", "ID@func", "(", "argumentos", ")", ";"],
+                          ["terminar", ";"],
+                          ["si", "(", "expresion", ")", "bloque", "si_resto"],
+                          ["mientras", "(", "expresion", ")", "bloque"],
+                          ["para", "(", "para_inicio", ";", "expresion", ";",
+                           "para_paso", ")", "bloque"]],
+    "retorno_resto":     [["(", "expresion", ")", ";"], [";"]],
+    "decl_resto":        [[";"], ["=", "valor_inicial", ";"],
+                          ["[", "expresion", "]", "dim2", ";"]],
+    "dim2":              [["[", "expresion", "]"], []],
+    "valor_inicial":     [["expresion"], ["literal_lista"]],
+    "literal_lista":     [["[", "elemento_lista", "elementos_lista_r", "]"]],
+    "elementos_lista_r": [[",", "elemento_lista", "elementos_lista_r"], []],
+    "elemento_lista":    [["expresion"], ["literal_lista"]],
+    "indice_opt":        [["[", "expresion", "]", "dim2"], []],
+    "op_asig":           [["="], ["+="], ["-="]],
+    "si_resto":          [["sino", "sino_resto"], []],
+    "sino_resto":        [["si", "(", "expresion", ")", "bloque", "si_resto"], ["bloque"]],
+    "para_inicio":       [["tipo", "ID@nuevo", "=", "expresion"],
+                          ["ID@var", "indice_opt", "op_asig", "expresion"], []],
+    "para_paso":         [["ID@var", "indice_opt", "op_asig", "expresion"], []],
+    "argumentos":        [["expresion", "argumentos_r"], []],
+    "argumentos_r":      [[",", "expresion", "argumentos_r"], []],
+    # Precedencia de menor a mayor, igual que los %left de parser.y
+    "expresion":         [["exp_and", "exp_or_r"]],
+    "exp_or_r":          [["||", "exp_and", "exp_or_r"], []],
+    "exp_and":           [["exp_ig", "exp_and_r"]],
+    "exp_and_r":         [["&&", "exp_ig", "exp_and_r"], []],
+    "exp_ig":            [["exp_rel", "exp_ig_r"]],
+    "exp_ig_r":          [[op, "exp_rel", "exp_ig_r"] for op in ("==", "!=")] + [[]],
+    "exp_rel":           [["exp_suma", "exp_rel_r"]],
+    "exp_rel_r":         [[op, "exp_suma", "exp_rel_r"] for op in ("<", ">", "<=", ">=")] + [[]],
+    "exp_suma":          [["exp_mul", "exp_suma_r"]],
+    "exp_suma_r":        [[op, "exp_mul", "exp_suma_r"] for op in ("+", "-")] + [[]],
+    "exp_mul":           [["exp_unaria", "exp_mul_r"]],
+    "exp_mul_r":         [[op, "exp_unaria", "exp_mul_r"] for op in ("*", "/", "%")] + [[]],
+    "exp_unaria":        [["!", "exp_unaria"], ["-", "exp_unaria"], ["primario"]],
+    "primario":          [["verdadero"], ["falso"], ["ID@var", "indice_opt"], ["NUM"],
+                          ["CADENA"], ["CARACTER"],
+                          ["llamar", "ID@func", "(", "argumentos", ")"],
+                          ["(", "expresion", ")"]],
+}
+
+
+def es_no_terminal(s):
+    return s in GRAMATICA
+
+
+def base(s):
+    """Terminal sin la marca: 'ID@var' -> 'ID'."""
+    return s.split("@")[0]
+
+
+# 3. FIRST, FOLLOW y tabla predictiva M[A][a]
+def _first_de(simbolos, FIRST):
+    res = set()
+    for s in simbolos:
+        if not es_no_terminal(s):
+            return res | {base(s)}
+        res |= FIRST[s] - {EPS}
+        if EPS not in FIRST[s]:
+            return res
+    return res | {EPS}
+
+
+def _calcular_first():
+    FIRST = {A: set() for A in GRAMATICA}
+    cambio = True
+    while cambio:
+        cambio = False
+        for A, prods in GRAMATICA.items():
+            for p in prods:
+                nuevo = _first_de(p, FIRST)
+                if not nuevo <= FIRST[A]:
+                    FIRST[A] |= nuevo
+                    cambio = True
+    return FIRST
+
+
+def _calcular_follow():
+    FOLLOW = {A: set() for A in GRAMATICA}
+    FOLLOW[INICIAL].add(FIN)
+    cambio = True
+    while cambio:
+        cambio = False
+        for A, prods in GRAMATICA.items():
+            for p in prods:
+                for i, B in enumerate(p):
+                    if es_no_terminal(B):
+                        resto = _first_de(p[i + 1:], FIRST)
+                        nuevo = (resto - {EPS}) | (FOLLOW[A] if EPS in resto else set())
+                        if not nuevo <= FOLLOW[B]:
+                            FOLLOW[B] |= nuevo
+                            cambio = True
+    return FOLLOW
+
+
+def _construir_tabla():
+    M = {A: {} for A in GRAMATICA}
+    for A, prods in GRAMATICA.items():
+        for p in prods:
+            f = _first_de(p, FIRST)
+            for a in (f - {EPS}) | (FOLLOW[A] if EPS in f else set()):
+                assert a not in M[A], f"conflicto LL(1) en M[{A}, {a}]"
+                M[A][a] = p
+    return M
+
+
+FIRST = _calcular_first()
+FOLLOW = _calcular_follow()
+TABLA = _construir_tabla()
+
+
+# 4. Analizador predictivo con pila. Si encuentra un error se recupera en
+# modo pánico, para que un error más arriba no apague las sugerencias.
+def _uso_id(X):
+    """Marca ('var', 'func' o 'nuevo') del ID que se deriva primero de X."""
+    if not es_no_terminal(X):
+        return X.split("@")[1] if X.startswith("ID@") else None
+    for s in TABLA[X].get("ID", []):
+        if not es_no_terminal(s) or "ID" in FIRST[s]:
+            return _uso_id(s)
+        if EPS not in FIRST[s]:
+            break
+    return None
+
+
+def ll1_esperados(tokens):
+    """Analiza los tokens y devuelve {terminal: marca} con lo que puede venir después."""
+    pila = [FIN, INICIAL]
+    i = 0
+    while i < len(tokens):
+        a, X = tokens[i].tipo, pila[-1]
+        if X == FIN:
+            i += 1                                   # sobran tokens
+        elif not es_no_terminal(X):
+            pila.pop()
+            if base(X) == a:
+                i += 1                               # si no coincide, se asume que faltaba X
+        elif a in TABLA[X]:
+            pila.pop()
+            pila.extend(reversed(TABLA[X][a]))
+        elif a in FOLLOW[X]:
+            pila.pop()                               # modo pánico: se abandona X
+        else:
+            i += 1                                   # modo pánico: se descarta el token
+    esperados = {}
+    for X in reversed(pila):                         # FIRST de lo que queda en la pila
+        if X == FIN:
+            break
+        if not es_no_terminal(X):
+            esperados.setdefault(base(X), _uso_id(X))
+            break
+        for a in FIRST[X] - {EPS}:
+            esperados.setdefault(a, _uso_id(X) if a == "ID" else None)
+        if EPS not in FIRST[X]:
+            break
+    return esperados
+
+
+# 5. Ámbitos: qué variables se ven en el cursor y qué funciones hay
+def _tipo_en(toks, k):
+    """Si en toks[k] empieza un tipo, devuelve (tipo, índice siguiente)."""
+    if toks[k].tipo == "list" and k + 1 < len(toks) and toks[k + 1].tipo in TIPOS:
+        return "list " + toks[k + 1].tipo, k + 2
+    if toks[k].tipo in TIPOS:
+        return toks[k].tipo, k + 1
+    return None, k
+
+
+def ll1_variables(toks):
+    """Variables visibles después del último token, de la más interna a la global."""
+    ambitos = [[]]          # pila de bloques { }, el primero son las globales
+    pendientes = []         # declaradas entre paréntesis (parámetros o la del `para`)
+    parentesis = 0
+    for k, t in enumerate(toks):
+        if t.tipo == "(":
+            parentesis += 1
+        elif t.tipo == ")":
+            parentesis -= 1
+        elif t.tipo == "{":
+            ambitos.append(pendientes)               # entran al bloque que se abre
+            pendientes = []
+        elif t.tipo == "}" and len(ambitos) > 1:
+            ambitos.pop()
+        else:
+            tipo, j = _tipo_en(toks, k)
+            if tipo and j < len(toks) and toks[j].tipo == "ID":
+                (pendientes if parentesis > 0 else ambitos[-1]).append((toks[j].texto, tipo))
+    if parentesis > 0:
+        ambitos.append(pendientes)                   # cursor dentro de `para (...)`
+    visibles = {}
+    for amb in reversed(ambitos):
+        for nombre, tipo in reversed(amb):
+            visibles.setdefault(nombre, tipo)        # la más interna tiene prioridad
+    return visibles
+
+
+def ll1_funciones(toks):
+    """Funciones definidas en el archivo: nombre -> firma."""
+    funcs = {}
+    for k in range(1, len(toks) - 2):
+        if toks[k].tipo == "def" and toks[k + 1].tipo == "ID" and toks[k + 2].tipo == "(":
+            cierre = next((j for j in range(k + 3, len(toks)) if toks[j].tipo == ")"), len(toks))
+            params = " ".join(t.texto for t in toks[k + 3:cierre]).replace(" ,", ",")
+            ret = ("list " if k >= 2 and toks[k - 2].tipo == "list" else "") + toks[k - 1].texto
+            funcs[toks[k + 1].texto] = f"{ret} {toks[k + 1].texto}({params})"
+    return funcs
+
+
+# 6. Sugerencias
+INTRINSECAS = {  # nombre -> tipo de retorno (src/semantico.c)
+    "autenticar": "vacio", "cerrar_sesion": "vacio", "leer_estado": "ent",
+    "cargar_llave": "vacio", "ronda_feistel": "vacio", "feistel_cifrar": "vacio",
+    "feistel_descifrar": "vacio", "leer_mem": "ent", "escribir_mem": "vacio",
+}
+# La gramática acepta real, doble, caract y cad (igual que parser.y), pero el
+# semántico los rechaza con el error 14. Por eso solo se sugieren ent y bool.
+TIPOS_SOPORTADOS = ("ent", "bool")
+PLANTILLAS = {  # '$0' marca dónde queda el cursor
+    "si":       "si ($0) {\n    \n}",
+    "sino":     "sino {\n    $0\n}",
+    "mientras": "mientras ($0) {\n    \n}",
+    "para":     "para (ent i = 0; i < $0; i += 1) {\n    \n}",
+    "def":      "def $0() {\n    \n}",
+    "vacio":    "vacio def $0() {\n    \n}",     # vacio solo va antes de una función
+}
+ORDEN = {"variable": 0, "funcion": 1, "tipo": 2, "palabra clave": 3, "simbolo": 4}
+
+
+@dataclass
+class Sugerencia:
+    label: str
+    kind: str
+    detail: str
+    insertar: str   # texto que se inserta en el editor
+
+
+def ll1_sugerir(texto, pos):
+    """Devuelve (prefijo, sugerencias) para el cursor en la posición `pos`."""
+    toks, zonas = ll1_tokenizar(texto)
+    if any(a < pos < b for a, b in zonas):
+        return "", []                                # dentro de comentario o cadena
+    previos = [t for t in toks if t.ini < pos]
+    prefijo = ""
+    if previos and previos[-1].fin >= pos and (previos[-1].tipo == "ID"
+                                               or previos[-1].tipo in PALABRAS_CLAVE):
+        t = previos.pop()                            # palabra a medio escribir
+        prefijo = texto[t.ini:pos]
+    recien_abierto = bool(previos) and previos[-1].tipo == "{"    # se acaba de escribir {
+    sugs = []
+    for a, uso in ll1_esperados(previos).items():
+        if uso == "var":
+            sugs += [Sugerencia(n, "variable", t, n) for n, t in ll1_variables(previos).items()]
+        elif uso == "func":
+            funcs = {n: f"{r} {n}(...) · intrínseca" for n, r in INTRINSECAS.items()}
+            funcs.update(ll1_funciones(toks))
+            sugs += [Sugerencia(n, "funcion", d, n + "($0)") for n, d in funcs.items()]
+        elif a in TIPOS_SOPORTADOS or a == "list":
+            sugs.append(Sugerencia(a, "tipo", "tipo", a + " "))
+        elif a in PALABRAS_CLAVE and a not in TIPOS:
+            sugs.append(Sugerencia(a, "palabra clave", "", PLANTILLAS.get(a, a + " ")))
+        elif a == "}" and recien_abierto:            # cierra el bloque y deja el cursor adentro
+            sugs.append(Sugerencia("}", "simbolo", "cerrar el bloque", "\n    $0\n}"))
+        elif a == "}":                               # hay un bloque { sin cerrar
+            sugs.append(Sugerencia("}", "simbolo", "cerrar el bloque", "}"))
+        elif a == "{":                               # después de la cabecera de una función, si, ...
+            sugs.append(Sugerencia("{", "simbolo", "abrir el bloque", "{\n    $0\n}"))
+    primero = "}" if recien_abierto else None        # justo después de { va primero el cierre
+    sugs.sort(key=lambda s: (s.label != primero, ORDEN[s.kind],
+                             "" if s.kind == "variable" else s.label))
+    return prefijo, [s for s in sugs if s.label.startswith(prefijo)]
+
+
+# 7. Popup mientras se escribe. Se abre al escribir letras (y después de
+# `llamar `). Enter/Tab insertan, Esc cierra y las flechas navegan.
+class CompletadorJaf:
+    def __init__(self, editor):
+        self.editor = editor
+        self.al_actualizar = None                    # llena la pestaña SUGERENCIAS
+        self.sugs = {}
+        self.modelo = QStandardItemModel(editor)
+        self.c = QCompleter(self.modelo, editor)
+        self.c.setWidget(editor)
+        self.c.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        self.c.activated.connect(self._insertar)     # clic con el mouse
+
+    def antes_de_tecla(self, e):
+        """True si el popup consumió la tecla y el editor no debe procesarla."""
+        popup = self.c.popup()
+        if not popup.isVisible():
+            return False
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab) \
+                and popup.currentIndex().isValid():
+            self._insertar(popup.currentIndex().data())
+            return True
+        if e.key() == Qt.Key.Key_Escape:
+            popup.hide()
+            return True
+        return False
+
+    def despues_de_tecla(self, e):
+        cur = self.editor.textCursor()
+        linea = cur.block().text()[:cur.positionInBlock()]
+        if e.text().isalnum() or e.text() == "_" or e.key() == Qt.Key.Key_Backspace:
+            self.mostrar()                           # solo se abre si hay palabra a medio escribir
+        elif e.text() == "{" or (e.text() == " " and re.search(r"\bllamar $", linea)):
+            self.mostrar(forzar=True)                # después de `{` o de `llamar `
+        else:
+            self.c.popup().hide()
+
+    def mostrar(self, forzar=False):
+        """Abre el popup. Sin `forzar` solo lo abre si se está escribiendo una palabra."""
+        prefijo, sugs = ll1_sugerir(self.editor.toPlainText(), self.editor.textCursor().position())
+        if self.al_actualizar:
+            self.al_actualizar(sugs)
+        if not sugs or (not prefijo and not forzar) or [s.insertar for s in sugs] == [prefijo]:
+            self.c.popup().hide()
+            return
+        self.modelo.clear()
+        for s in sugs:
+            item = QStandardItem(s.label)
+            item.setToolTip(s.detail or s.kind)
+            self.modelo.appendRow(item)
+        self.sugs = {s.label: s for s in sugs}
+        rect = self.editor.cursorRect()
+        rect.setWidth(300)
+        self.c.complete(rect)
+        self.c.popup().setCurrentIndex(self.modelo.index(0, 0))
+
+    def _insertar(self, etiqueta):
+        """Reemplaza la palabra a medio escribir por la sugerencia elegida."""
+        self.c.popup().hide()
+        s = self.sugs.get(etiqueta)
+        if not s:
+            return
+        cur = self.editor.textCursor()
+        linea = cur.block().text()[:cur.positionInBlock()]
+        sangria = re.match(r"\s*", linea).group()
+        texto = s.insertar.replace("\n", "\n" + sangria)
+        marca = texto.find("$0")
+        texto = texto.replace("$0", "")
+        largo = len(re.search(r"\w*$", linea).group())
+        if texto == "}" and not linea.strip():
+            largo = min(4, len(linea))               # la llave va un nivel a la izquierda
+        cur.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, largo)
+        inicio = cur.selectionStart()
+        cur.insertText(texto)
+        if marca >= 0:
+            cur.setPosition(inicio + marca)
+        self.editor.setTextCursor(cur)
+        if texto.endswith(" "):                      # 'llamar ', 'ent ', 'list ' ...
+            QTimer.singleShot(0, lambda: self.mostrar(forzar=True))
 
 
 class JafHighlighter(QSyntaxHighlighter):
@@ -606,6 +1047,14 @@ class CodeEditor(QPlainTextEdit):
         self.textChanged.connect(self._on_text)
         self.set_zoom(font_pt)
         self._update_width(0)
+        self.completador = CompletadorJaf(self)
+
+    def keyPressEvent(self, event):
+        # Popup de sugerencias: Enter/Tab insertan, Esc cierra y al escribir se actualiza.
+        if self.completador.antes_de_tecla(event):
+            return
+        super().keyPressEvent(event)
+        self.completador.despues_de_tecla(event)
 
     def set_zoom_callback(self, cb):
         self._zoom_cb = cb
@@ -1159,6 +1608,7 @@ class JafIde(QMainWindow):
         )
         ed.load_text(NUEVO_OLY)
         ed.set_zoom_callback(self._zoom_delta)
+        ed.completador.al_actualizar = self._panel_sugerencias
         self.buffers[key] = ed
         self.dirty.add(key)  # sin guardar en disco aún
         i = self.tabs.addTab(ed, self._label(key))
@@ -1188,6 +1638,7 @@ class JafIde(QMainWindow):
             return
         self.dirty.discard(path)
         ed.set_zoom_callback(self._zoom_delta)
+        ed.completador.al_actualizar = self._panel_sugerencias
         self.buffers[path] = ed
         self.tabs.addTab(ed, self._label(path))
         self.tabs.setCurrentWidget(ed)
@@ -1398,39 +1849,40 @@ class JafIde(QMainWindow):
         self.sl.setText(f"fix en {line}:{col + 1}")
 
     def sugerir(self):
-        comps = self.ultimo.get("completions") or []
-        if not comps:
-            self.analizar()
-            comps = self.ultimo.get("completions") or []
-        if not comps:
-            self.sl.setText("sin sugerencias — TODO emitir_completions() en src/ide.c")
-            return
+        """Ctrl+Espacio: abre el popup de sugerencias en el cursor."""
         ed = self.current_editor()
-        if not ed:
-            return
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Sugerencias")
-        dlg.resize(320, 280)
-        lay = QVBoxLayout(dlg)
-        lst = QListWidget()
-        for c in comps:
-            lst.addItem(f"{c.get('label', '')}    {c.get('kind', '')}")
-        lay.addWidget(lst)
+        if ed:
+            ed.completador.mostrar(forzar=True)
 
-        def usar():
-            i = lst.currentRow()
-            if i >= 0:
-                ed.insertPlainText(comps[i].get("label", ""))
-                dlg.accept()
+    def _panel_sugerencias(self, sugs):
+        """Muestra en la pestaña SUGERENCIAS las sugerencias del cursor."""
+        self._fill(self.tbl_sug, sugs, lambda s: (s.label, s.kind, s.detail))
 
-        lst.itemDoubleClicked.connect(lambda _: usar())
-        btn = QPushButton("Insertar")
-        btn.clicked.connect(usar)
-        lay.addWidget(btn)
-        dlg.exec()
+
+def _limpiar_entorno_snap():
+    """VS Code instalado como snap le pasa a su terminal variables que apuntan a
+    las librerías del snap (XDG_DATA_DIRS, GSETTINGS_SCHEMA_DIR, ...). GLib las lee
+    al crear la ventana y el proceso se cae con:
+      GLib-GIO-ERROR: Settings schema 'org.gnome.settings-daemon.plugins.xsettings'
+      does not contain a key named 'antialiasing'
+    Si se detectan, se quitan antes de crear la QApplication."""
+    env = os.environ
+    variables = ("GSETTINGS_SCHEMA_DIR", "GTK_PATH", "GIO_MODULE_DIR", "GTK_EXE_PREFIX",
+                 "GTK_IM_MODULE_FILE", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR",
+                 "LOCPATH")
+    if not any("/snap/" in env.get(v, "") for v in variables + ("XDG_DATA_DIRS",)):
+        return
+    for v in variables:
+        if "/snap/" in env.get(v, ""):
+            env.pop(v)
+    dirs = [d for d in env.get("XDG_DATA_DIRS", "").split(":") if d and "/snap/" not in d]
+    env["XDG_DATA_DIRS"] = ":".join(dirs or ["/usr/local/share", "/usr/share"])
+    if env.get("QT_QPA_PLATFORMTHEME", "gtk3") in ("", "gtk3", "gtk2"):
+        env["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
 
 
 def main():
+    _limpiar_entorno_snap()              # terminal de VS Code (snap): evita GLib-GIO-ERROR
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
     app = QApplication(sys.argv)
     app.setApplicationName("JAF IDE")
