@@ -118,8 +118,8 @@ QLineEdit:focus { border:1px solid #007acc; }
 # Se analiza con LL(1) el código que está antes del cursor. Lo que queda en la
 # pila dice qué puede venir después, y eso es lo que se sugiere: palabras
 # clave, tipos, variables visibles en ese punto o funciones (después de llamar).
-# Pasos: 1 lexer, 2 gramática, 3 tabla LL(1), 4 analizador, 5 ámbitos,
-# 6 sugerencias, 7 popup.
+# Pasos: 1 lexer, 2 tabla LL(1), 3 analizador, 4 ámbitos, 5 sugerencias,
+# 6 popup.
 
 # 1. Lexer: mismas reglas que src/lexer.l. Los comentarios y las cadenas se
 # guardan como zonas, porque dentro de ellas no se sugiere nada.
@@ -172,194 +172,361 @@ def ll1_tokenizar(texto):
     return toks, zonas
 
 
-# 2. Gramática LL(1): la de src/parser.y sin recursión por la izquierda,
-# factorizada y con la precedencia de operadores escrita en niveles.
+# 2. Tabla LL(1): M[NoTerminal][Terminal] = Producción
+# Es la gramática de src/parser.y transformada a LL(1) (sin recursión por la
+# izquierda, factorizada y con la precedencia de operadores en niveles). Cada
+# celda se llenó con las reglas de siempre: M[A][a] = α si a está en FIRST(α),
+# y M[A][b] = ε si b está en FOLLOW(A). Ninguna celda tiene dos producciones.
 # Cada ID lleva una marca que no cambia el terminal, solo indica qué sugerir:
 #   ID@var    variable (en una expresión o a la izquierda de una asignación)
 #   ID@func   función, después de `llamar`
 #   ID@nuevo  nombre nuevo que se está declarando (no se sugiere nada)
-EPS = "ε"
-FIN = "$"
-INICIAL = "programa"
-GRAMATICA = {
-    "programa":          [["importaciones", "elementos"]],
-    "importaciones":     [["#import", "CADENA", ";", "importaciones"], []],
-    "elementos":         [["elemento", "elementos"], []],
-    "elemento":          [["tipo", "elem_tipo"],
-                          ["vacio", "def", "ID@nuevo", "(", "parametros", ")", "bloque"],
-                          ["sent_no_decl"]],
-    "elem_tipo":         [["def", "ID@nuevo", "(", "parametros", ")", "bloque"],
-                          ["ID@nuevo", "decl_resto"]],
-    "tipo":              [["tipo_escalar"], ["list", "tipo_escalar"]],
-    "tipo_escalar":      [[t] for t in TIPOS],
-    "parametros":        [["tipo", "ID@nuevo", "parametros_r"], []],
-    "parametros_r":      [[",", "tipo", "ID@nuevo", "parametros_r"], []],
-    "bloque":            [["{", "sentencias", "}"]],
-    "sentencias":        [["sentencia", "sentencias"], []],
-    "sentencia":         [["tipo", "ID@nuevo", "decl_resto"], ["sent_no_decl"]],
-    "sent_no_decl":      [["ID@var", "indice_opt", "op_asig", "expresion", ";"],
-                          ["retorno", "retorno_resto"],
-                          ["llamar", "ID@func", "(", "argumentos", ")", ";"],
-                          ["terminar", ";"],
-                          ["si", "(", "expresion", ")", "bloque", "si_resto"],
-                          ["mientras", "(", "expresion", ")", "bloque"],
-                          ["para", "(", "para_inicio", ";", "expresion", ";",
-                           "para_paso", ")", "bloque"]],
-    "retorno_resto":     [["(", "expresion", ")", ";"], [";"]],
-    "decl_resto":        [[";"], ["=", "valor_inicial", ";"],
-                          ["[", "expresion", "]", "dim2", ";"]],
-    "dim2":              [["[", "expresion", "]"], []],
-    "valor_inicial":     [["expresion"], ["literal_lista"]],
-    "literal_lista":     [["[", "elemento_lista", "elementos_lista_r", "]"]],
-    "elementos_lista_r": [[",", "elemento_lista", "elementos_lista_r"], []],
-    "elemento_lista":    [["expresion"], ["literal_lista"]],
-    "indice_opt":        [["[", "expresion", "]", "dim2"], []],
-    "op_asig":           [["="], ["+="], ["-="]],
-    "si_resto":          [["sino", "sino_resto"], []],
-    "sino_resto":        [["si", "(", "expresion", ")", "bloque", "si_resto"], ["bloque"]],
-    "para_inicio":       [["tipo", "ID@nuevo", "=", "expresion"],
-                          ["ID@var", "indice_opt", "op_asig", "expresion"], []],
-    "para_paso":         [["ID@var", "indice_opt", "op_asig", "expresion"], []],
-    "argumentos":        [["expresion", "argumentos_r"], []],
-    "argumentos_r":      [[",", "expresion", "argumentos_r"], []],
-    # Precedencia de menor a mayor, igual que los %left de parser.y
-    "expresion":         [["exp_and", "exp_or_r"]],
-    "exp_or_r":          [["||", "exp_and", "exp_or_r"], []],
-    "exp_and":           [["exp_ig", "exp_and_r"]],
-    "exp_and_r":         [["&&", "exp_ig", "exp_and_r"], []],
-    "exp_ig":            [["exp_rel", "exp_ig_r"]],
-    "exp_ig_r":          [[op, "exp_rel", "exp_ig_r"] for op in ("==", "!=")] + [[]],
-    "exp_rel":           [["exp_suma", "exp_rel_r"]],
-    "exp_rel_r":         [[op, "exp_suma", "exp_rel_r"] for op in ("<", ">", "<=", ">=")] + [[]],
-    "exp_suma":          [["exp_mul", "exp_suma_r"]],
-    "exp_suma_r":        [[op, "exp_mul", "exp_suma_r"] for op in ("+", "-")] + [[]],
-    "exp_mul":           [["exp_unaria", "exp_mul_r"]],
-    "exp_mul_r":         [[op, "exp_unaria", "exp_mul_r"] for op in ("*", "/", "%")] + [[]],
-    "exp_unaria":        [["!", "exp_unaria"], ["-", "exp_unaria"], ["primario"]],
-    "primario":          [["verdadero"], ["falso"], ["ID@var", "indice_opt"], ["NUM"],
-                          ["CADENA"], ["CARACTER"],
-                          ["llamar", "ID@func", "(", "argumentos", ")"],
-                          ["(", "expresion", ")"]],
+TABLA = {
+    "programa": {
+        "#import": ["importaciones", "elementos"], "$": ["importaciones", "elementos"],
+        "ID": ["importaciones", "elementos"], "bool": ["importaciones", "elementos"],
+        "cad": ["importaciones", "elementos"], "caract": ["importaciones", "elementos"],
+        "doble": ["importaciones", "elementos"], "ent": ["importaciones", "elementos"],
+        "list": ["importaciones", "elementos"], "llamar": ["importaciones", "elementos"],
+        "mientras": ["importaciones", "elementos"], "para": ["importaciones", "elementos"],
+        "real": ["importaciones", "elementos"], "retorno": ["importaciones", "elementos"],
+        "si": ["importaciones", "elementos"], "terminar": ["importaciones", "elementos"],
+        "vacio": ["importaciones", "elementos"],
+    },
+    "importaciones": {
+        "#import": ["#import", "CADENA", ";", "importaciones"],
+        "$": ["ε"], "ID": ["ε"], "bool": ["ε"], "cad": ["ε"], "caract": ["ε"], "doble": ["ε"],
+        "ent": ["ε"], "list": ["ε"], "llamar": ["ε"], "mientras": ["ε"], "para": ["ε"],
+        "real": ["ε"], "retorno": ["ε"], "si": ["ε"], "terminar": ["ε"], "vacio": ["ε"],
+    },
+    "elementos": {
+        "ID": ["elemento", "elementos"], "bool": ["elemento", "elementos"],
+        "cad": ["elemento", "elementos"], "caract": ["elemento", "elementos"],
+        "doble": ["elemento", "elementos"], "ent": ["elemento", "elementos"],
+        "list": ["elemento", "elementos"], "llamar": ["elemento", "elementos"],
+        "mientras": ["elemento", "elementos"], "para": ["elemento", "elementos"],
+        "real": ["elemento", "elementos"], "retorno": ["elemento", "elementos"],
+        "si": ["elemento", "elementos"], "terminar": ["elemento", "elementos"],
+        "vacio": ["elemento", "elementos"],
+        "$": ["ε"],
+    },
+    "elemento": {
+        "bool": ["tipo", "elem_tipo"], "cad": ["tipo", "elem_tipo"],
+        "caract": ["tipo", "elem_tipo"], "doble": ["tipo", "elem_tipo"],
+        "ent": ["tipo", "elem_tipo"], "list": ["tipo", "elem_tipo"],
+        "real": ["tipo", "elem_tipo"],
+        "vacio": ["vacio", "def", "ID@nuevo", "(", "parametros", ")", "bloque"],
+        "ID": ["sent_no_decl"], "llamar": ["sent_no_decl"], "mientras": ["sent_no_decl"],
+        "para": ["sent_no_decl"], "retorno": ["sent_no_decl"], "si": ["sent_no_decl"],
+        "terminar": ["sent_no_decl"],
+    },
+    "elem_tipo": {
+        "def": ["def", "ID@nuevo", "(", "parametros", ")", "bloque"],
+        "ID": ["ID@nuevo", "decl_resto"],
+    },
+    "tipo": {
+        "bool": ["tipo_escalar"], "cad": ["tipo_escalar"], "caract": ["tipo_escalar"],
+        "doble": ["tipo_escalar"], "ent": ["tipo_escalar"], "real": ["tipo_escalar"],
+        "list": ["list", "tipo_escalar"],
+    },
+    "tipo_escalar": {
+        "ent": ["ent"],
+        "real": ["real"],
+        "doble": ["doble"],
+        "bool": ["bool"],
+        "caract": ["caract"],
+        "cad": ["cad"],
+    },
+    "parametros": {
+        "bool": ["tipo", "ID@nuevo", "parametros_r"],
+        "cad": ["tipo", "ID@nuevo", "parametros_r"],
+        "caract": ["tipo", "ID@nuevo", "parametros_r"],
+        "doble": ["tipo", "ID@nuevo", "parametros_r"],
+        "ent": ["tipo", "ID@nuevo", "parametros_r"],
+        "list": ["tipo", "ID@nuevo", "parametros_r"],
+        "real": ["tipo", "ID@nuevo", "parametros_r"],
+        ")": ["ε"],
+    },
+    "parametros_r": {
+        ",": [",", "tipo", "ID@nuevo", "parametros_r"],
+        ")": ["ε"],
+    },
+    "bloque": {
+        "{": ["{", "sentencias", "}"],
+    },
+    "sentencias": {
+        "ID": ["sentencia", "sentencias"], "bool": ["sentencia", "sentencias"],
+        "cad": ["sentencia", "sentencias"], "caract": ["sentencia", "sentencias"],
+        "doble": ["sentencia", "sentencias"], "ent": ["sentencia", "sentencias"],
+        "list": ["sentencia", "sentencias"], "llamar": ["sentencia", "sentencias"],
+        "mientras": ["sentencia", "sentencias"], "para": ["sentencia", "sentencias"],
+        "real": ["sentencia", "sentencias"], "retorno": ["sentencia", "sentencias"],
+        "si": ["sentencia", "sentencias"], "terminar": ["sentencia", "sentencias"],
+        "}": ["ε"],
+    },
+    "sentencia": {
+        "bool": ["tipo", "ID@nuevo", "decl_resto"], "cad": ["tipo", "ID@nuevo", "decl_resto"],
+        "caract": ["tipo", "ID@nuevo", "decl_resto"],
+        "doble": ["tipo", "ID@nuevo", "decl_resto"], "ent": ["tipo", "ID@nuevo", "decl_resto"],
+        "list": ["tipo", "ID@nuevo", "decl_resto"], "real": ["tipo", "ID@nuevo", "decl_resto"],
+        "ID": ["sent_no_decl"], "llamar": ["sent_no_decl"], "mientras": ["sent_no_decl"],
+        "para": ["sent_no_decl"], "retorno": ["sent_no_decl"], "si": ["sent_no_decl"],
+        "terminar": ["sent_no_decl"],
+    },
+    "sent_no_decl": {
+        "ID": ["ID@var", "indice_opt", "op_asig", "expresion", ";"],
+        "retorno": ["retorno", "retorno_resto"],
+        "llamar": ["llamar", "ID@func", "(", "argumentos", ")", ";"],
+        "terminar": ["terminar", ";"],
+        "si": ["si", "(", "expresion", ")", "bloque", "si_resto"],
+        "mientras": ["mientras", "(", "expresion", ")", "bloque"],
+       
+        "para": ["para", "(", "para_inicio", ";", "expresion", ";", "para_paso", ")", "bloque"],
+    },
+    "retorno_resto": {
+        "(": ["(", "expresion", ")", ";"],
+        ";": [";"],
+    },
+    "decl_resto": {
+        ";": [";"],
+        "=": ["=", "valor_inicial", ";"],
+        "[": ["[", "expresion", "]", "dim2", ";"],
+    },
+    "dim2": {
+        "[": ["[", "expresion", "]"],
+        "!=": ["ε"], "%": ["ε"], "&&": ["ε"], ")": ["ε"], "*": ["ε"], "+": ["ε"], "+=": ["ε"],
+        ",": ["ε"], "-": ["ε"], "-=": ["ε"], "/": ["ε"], ";": ["ε"], "<": ["ε"], "<=": ["ε"],
+        "=": ["ε"], "==": ["ε"], ">": ["ε"], ">=": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "valor_inicial": {
+        "!": ["expresion"], "(": ["expresion"], "-": ["expresion"], "CADENA": ["expresion"],
+        "CARACTER": ["expresion"], "ID": ["expresion"], "NUM": ["expresion"],
+        "falso": ["expresion"], "llamar": ["expresion"], "verdadero": ["expresion"],
+        "[": ["literal_lista"],
+    },
+    "literal_lista": {
+        "[": ["[", "elemento_lista", "elementos_lista_r", "]"],
+    },
+    "elementos_lista_r": {
+        ",": [",", "elemento_lista", "elementos_lista_r"],
+        "]": ["ε"],
+    },
+    "elemento_lista": {
+        "!": ["expresion"], "(": ["expresion"], "-": ["expresion"], "CADENA": ["expresion"],
+        "CARACTER": ["expresion"], "ID": ["expresion"], "NUM": ["expresion"],
+        "falso": ["expresion"], "llamar": ["expresion"], "verdadero": ["expresion"],
+        "[": ["literal_lista"],
+    },
+    "indice_opt": {
+        "[": ["[", "expresion", "]", "dim2"],
+        "!=": ["ε"], "%": ["ε"], "&&": ["ε"], ")": ["ε"], "*": ["ε"], "+": ["ε"], "+=": ["ε"],
+        ",": ["ε"], "-": ["ε"], "-=": ["ε"], "/": ["ε"], ";": ["ε"], "<": ["ε"], "<=": ["ε"],
+        "=": ["ε"], "==": ["ε"], ">": ["ε"], ">=": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "op_asig": {
+        "=": ["="],
+        "+=": ["+="],
+        "-=": ["-="],
+    },
+    "si_resto": {
+        "sino": ["sino", "sino_resto"],
+        "$": ["ε"], "ID": ["ε"], "bool": ["ε"], "cad": ["ε"], "caract": ["ε"], "doble": ["ε"],
+        "ent": ["ε"], "list": ["ε"], "llamar": ["ε"], "mientras": ["ε"], "para": ["ε"],
+        "real": ["ε"], "retorno": ["ε"], "si": ["ε"], "terminar": ["ε"], "vacio": ["ε"],
+        "}": ["ε"],
+    },
+    "sino_resto": {
+        "si": ["si", "(", "expresion", ")", "bloque", "si_resto"],
+        "{": ["bloque"],
+    },
+    "para_inicio": {
+        "bool": ["tipo", "ID@nuevo", "=", "expresion"],
+        "cad": ["tipo", "ID@nuevo", "=", "expresion"],
+        "caract": ["tipo", "ID@nuevo", "=", "expresion"],
+        "doble": ["tipo", "ID@nuevo", "=", "expresion"],
+        "ent": ["tipo", "ID@nuevo", "=", "expresion"],
+        "list": ["tipo", "ID@nuevo", "=", "expresion"],
+        "real": ["tipo", "ID@nuevo", "=", "expresion"],
+        "ID": ["ID@var", "indice_opt", "op_asig", "expresion"],
+        ";": ["ε"],
+    },
+    "para_paso": {
+        "ID": ["ID@var", "indice_opt", "op_asig", "expresion"],
+        ")": ["ε"],
+    },
+    "argumentos": {
+        "!": ["expresion", "argumentos_r"], "(": ["expresion", "argumentos_r"],
+        "-": ["expresion", "argumentos_r"], "CADENA": ["expresion", "argumentos_r"],
+        "CARACTER": ["expresion", "argumentos_r"], "ID": ["expresion", "argumentos_r"],
+        "NUM": ["expresion", "argumentos_r"], "falso": ["expresion", "argumentos_r"],
+        "llamar": ["expresion", "argumentos_r"], "verdadero": ["expresion", "argumentos_r"],
+        ")": ["ε"],
+    },
+    "argumentos_r": {
+        ",": [",", "expresion", "argumentos_r"],
+        ")": ["ε"],
+    },
+    "expresion": {
+        "!": ["exp_and", "exp_or_r"], "(": ["exp_and", "exp_or_r"],
+        "-": ["exp_and", "exp_or_r"], "CADENA": ["exp_and", "exp_or_r"],
+        "CARACTER": ["exp_and", "exp_or_r"], "ID": ["exp_and", "exp_or_r"],
+        "NUM": ["exp_and", "exp_or_r"], "falso": ["exp_and", "exp_or_r"],
+        "llamar": ["exp_and", "exp_or_r"], "verdadero": ["exp_and", "exp_or_r"],
+    },
+    "exp_or_r": {
+        "||": ["||", "exp_and", "exp_or_r"],
+        ")": ["ε"], ",": ["ε"], ";": ["ε"], "]": ["ε"],
+    },
+    "exp_and": {
+        "!": ["exp_ig", "exp_and_r"], "(": ["exp_ig", "exp_and_r"],
+        "-": ["exp_ig", "exp_and_r"], "CADENA": ["exp_ig", "exp_and_r"],
+        "CARACTER": ["exp_ig", "exp_and_r"], "ID": ["exp_ig", "exp_and_r"],
+        "NUM": ["exp_ig", "exp_and_r"], "falso": ["exp_ig", "exp_and_r"],
+        "llamar": ["exp_ig", "exp_and_r"], "verdadero": ["exp_ig", "exp_and_r"],
+    },
+    "exp_and_r": {
+        "&&": ["&&", "exp_ig", "exp_and_r"],
+        ")": ["ε"], ",": ["ε"], ";": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "exp_ig": {
+        "!": ["exp_rel", "exp_ig_r"], "(": ["exp_rel", "exp_ig_r"],
+        "-": ["exp_rel", "exp_ig_r"], "CADENA": ["exp_rel", "exp_ig_r"],
+        "CARACTER": ["exp_rel", "exp_ig_r"], "ID": ["exp_rel", "exp_ig_r"],
+        "NUM": ["exp_rel", "exp_ig_r"], "falso": ["exp_rel", "exp_ig_r"],
+        "llamar": ["exp_rel", "exp_ig_r"], "verdadero": ["exp_rel", "exp_ig_r"],
+    },
+    "exp_ig_r": {
+        "==": ["==", "exp_rel", "exp_ig_r"],
+        "!=": ["!=", "exp_rel", "exp_ig_r"],
+        "&&": ["ε"], ")": ["ε"], ",": ["ε"], ";": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "exp_rel": {
+        "!": ["exp_suma", "exp_rel_r"], "(": ["exp_suma", "exp_rel_r"],
+        "-": ["exp_suma", "exp_rel_r"], "CADENA": ["exp_suma", "exp_rel_r"],
+        "CARACTER": ["exp_suma", "exp_rel_r"], "ID": ["exp_suma", "exp_rel_r"],
+        "NUM": ["exp_suma", "exp_rel_r"], "falso": ["exp_suma", "exp_rel_r"],
+        "llamar": ["exp_suma", "exp_rel_r"], "verdadero": ["exp_suma", "exp_rel_r"],
+    },
+    "exp_rel_r": {
+        "<": ["<", "exp_suma", "exp_rel_r"],
+        ">": [">", "exp_suma", "exp_rel_r"],
+        "<=": ["<=", "exp_suma", "exp_rel_r"],
+        ">=": [">=", "exp_suma", "exp_rel_r"],
+        "!=": ["ε"], "&&": ["ε"], ")": ["ε"], ",": ["ε"], ";": ["ε"], "==": ["ε"], "]": ["ε"],
+        "||": ["ε"],
+    },
+    "exp_suma": {
+        "!": ["exp_mul", "exp_suma_r"], "(": ["exp_mul", "exp_suma_r"],
+        "-": ["exp_mul", "exp_suma_r"], "CADENA": ["exp_mul", "exp_suma_r"],
+        "CARACTER": ["exp_mul", "exp_suma_r"], "ID": ["exp_mul", "exp_suma_r"],
+        "NUM": ["exp_mul", "exp_suma_r"], "falso": ["exp_mul", "exp_suma_r"],
+        "llamar": ["exp_mul", "exp_suma_r"], "verdadero": ["exp_mul", "exp_suma_r"],
+    },
+    "exp_suma_r": {
+        "+": ["+", "exp_mul", "exp_suma_r"],
+        "-": ["-", "exp_mul", "exp_suma_r"],
+        "!=": ["ε"], "&&": ["ε"], ")": ["ε"], ",": ["ε"], ";": ["ε"], "<": ["ε"], "<=": ["ε"],
+        "==": ["ε"], ">": ["ε"], ">=": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "exp_mul": {
+        "!": ["exp_unaria", "exp_mul_r"], "(": ["exp_unaria", "exp_mul_r"],
+        "-": ["exp_unaria", "exp_mul_r"], "CADENA": ["exp_unaria", "exp_mul_r"],
+        "CARACTER": ["exp_unaria", "exp_mul_r"], "ID": ["exp_unaria", "exp_mul_r"],
+        "NUM": ["exp_unaria", "exp_mul_r"], "falso": ["exp_unaria", "exp_mul_r"],
+        "llamar": ["exp_unaria", "exp_mul_r"], "verdadero": ["exp_unaria", "exp_mul_r"],
+    },
+    "exp_mul_r": {
+        "*": ["*", "exp_unaria", "exp_mul_r"],
+        "/": ["/", "exp_unaria", "exp_mul_r"],
+        "%": ["%", "exp_unaria", "exp_mul_r"],
+        "!=": ["ε"], "&&": ["ε"], ")": ["ε"], "+": ["ε"], ",": ["ε"], "-": ["ε"], ";": ["ε"],
+        "<": ["ε"], "<=": ["ε"], "==": ["ε"], ">": ["ε"], ">=": ["ε"], "]": ["ε"], "||": ["ε"],
+    },
+    "exp_unaria": {
+        "!": ["!", "exp_unaria"],
+        "-": ["-", "exp_unaria"],
+        "(": ["primario"], "CADENA": ["primario"], "CARACTER": ["primario"],
+        "ID": ["primario"], "NUM": ["primario"], "falso": ["primario"], "llamar": ["primario"],
+        "verdadero": ["primario"],
+    },
+    "primario": {
+        "verdadero": ["verdadero"],
+        "falso": ["falso"],
+        "ID": ["ID@var", "indice_opt"],
+        "NUM": ["NUM"],
+        "CADENA": ["CADENA"],
+        "CARACTER": ["CARACTER"],
+        "llamar": ["llamar", "ID@func", "(", "argumentos", ")"],
+        "(": ["(", "expresion", ")"],
+    },
 }
 
 
-def es_no_terminal(s):
-    return s in GRAMATICA
-
-
-def base(s):
+def base(simbolo):
     """Terminal sin la marca: 'ID@var' -> 'ID'."""
-    return s.split("@")[0]
+    return simbolo.split("@")[0]
 
 
-# 3. FIRST, FOLLOW y tabla predictiva M[A][a]
-def _first_de(simbolos, FIRST):
-    res = set()
-    for s in simbolos:
-        if not es_no_terminal(s):
-            return res | {base(s)}
-        res |= FIRST[s] - {EPS}
-        if EPS not in FIRST[s]:
-            return res
-    return res | {EPS}
+# 3. Analizador LL(1) con pila: el mismo algoritmo de siempre, pero se detiene
+# en el cursor y, en vez de fallar, se recupera para que un error más arriba
+# no apague las sugerencias.
+def ll1_pila(tokens):
+    """Analiza los tokens que están antes del cursor y devuelve la pila que queda."""
+    pila = ["$", "programa"]
+    i = 0
+    while i < len(tokens):
+        top, actual = pila[-1], tokens[i].tipo
+        if top == "$":                               # sobran tokens
+            i += 1
+        elif top not in TABLA:                       # terminal
+            pila.pop()
+            if base(top) == actual:                  # match
+                i += 1                               # si no coincide, se asume que faltaba
+        elif actual in TABLA[top]:                   # no terminal: se usa la tabla
+            pila.pop()
+            for simbolo in reversed(TABLA[top][actual]):
+                if simbolo != "ε":
+                    pila.append(simbolo)
+        else:                                        # no hay producción: se descarta el token
+            i += 1
+    return pila
 
 
-def _calcular_first():
-    FIRST = {A: set() for A in GRAMATICA}
-    cambio = True
-    while cambio:
-        cambio = False
-        for A, prods in GRAMATICA.items():
-            for p in prods:
-                nuevo = _first_de(p, FIRST)
-                if not nuevo <= FIRST[A]:
-                    FIRST[A] |= nuevo
-                    cambio = True
-    return FIRST
-
-
-def _calcular_follow():
-    FOLLOW = {A: set() for A in GRAMATICA}
-    FOLLOW[INICIAL].add(FIN)
-    cambio = True
-    while cambio:
-        cambio = False
-        for A, prods in GRAMATICA.items():
-            for p in prods:
-                for i, B in enumerate(p):
-                    if es_no_terminal(B):
-                        resto = _first_de(p[i + 1:], FIRST)
-                        nuevo = (resto - {EPS}) | (FOLLOW[A] if EPS in resto else set())
-                        if not nuevo <= FOLLOW[B]:
-                            FOLLOW[B] |= nuevo
-                            cambio = True
-    return FOLLOW
-
-
-def _construir_tabla():
-    M = {A: {} for A in GRAMATICA}
-    for A, prods in GRAMATICA.items():
-        for p in prods:
-            f = _first_de(p, FIRST)
-            for a in (f - {EPS}) | (FOLLOW[A] if EPS in f else set()):
-                assert a not in M[A], f"conflicto LL(1) en M[{A}, {a}]"
-                M[A][a] = p
-    return M
-
-
-FIRST = _calcular_first()
-FOLLOW = _calcular_follow()
-TABLA = _construir_tabla()
-
-
-# 4. Analizador predictivo con pila. Si encuentra un error se recupera en
-# modo pánico, para que un error más arriba no apague las sugerencias.
-def _uso_id(X):
-    """Marca ('var', 'func' o 'nuevo') del ID que se deriva primero de X."""
-    if not es_no_terminal(X):
-        return X.split("@")[1] if X.startswith("ID@") else None
-    for s in TABLA[X].get("ID", []):
-        if not es_no_terminal(s) or "ID" in FIRST[s]:
-            return _uso_id(s)
-        if EPS not in FIRST[s]:
-            break
+def _match_con(pila, a):
+    """Simula qué haría el analizador si el siguiente token fuera `a`: expande con
+    la tabla hasta llegar a un terminal. Devuelve ese terminal si hace match
+    (p. ej. 'ID@var') o None si `a` no puede venir aquí."""
+    pila = list(pila)
+    while pila:
+        top = pila.pop()
+        if top == "$":
+            return None
+        if top not in TABLA:
+            return top if base(top) == a else None
+        if a not in TABLA[top]:
+            return None
+        for simbolo in reversed(TABLA[top][a]):
+            if simbolo != "ε":
+                pila.append(simbolo)
     return None
 
 
+TERMINALES = sorted({a for fila in TABLA.values() for a in fila} - {"$"})
+
+
 def ll1_esperados(tokens):
-    """Analiza los tokens y devuelve {terminal: marca} con lo que puede venir después."""
-    pila = [FIN, INICIAL]
-    i = 0
-    while i < len(tokens):
-        a, X = tokens[i].tipo, pila[-1]
-        if X == FIN:
-            i += 1                                   # sobran tokens
-        elif not es_no_terminal(X):
-            pila.pop()
-            if base(X) == a:
-                i += 1                               # si no coincide, se asume que faltaba X
-        elif a in TABLA[X]:
-            pila.pop()
-            pila.extend(reversed(TABLA[X][a]))
-        elif a in FOLLOW[X]:
-            pila.pop()                               # modo pánico: se abandona X
-        else:
-            i += 1                                   # modo pánico: se descarta el token
+    """Terminales que pueden venir en el cursor: se prueba cada uno con la tabla.
+    Devuelve {terminal: marca}, donde la marca dice qué ID va ('var', 'func', 'nuevo')."""
+    pila = ll1_pila(tokens)
     esperados = {}
-    for X in reversed(pila):                         # FIRST de lo que queda en la pila
-        if X == FIN:
-            break
-        if not es_no_terminal(X):
-            esperados.setdefault(base(X), _uso_id(X))
-            break
-        for a in FIRST[X] - {EPS}:
-            esperados.setdefault(a, _uso_id(X) if a == "ID" else None)
-        if EPS not in FIRST[X]:
-            break
+    for a in TERMINALES:
+        t = _match_con(pila, a)
+        if t:
+            esperados[a] = t.split("@")[1] if "@" in t else None
     return esperados
 
 
-# 5. Ámbitos: qué variables se ven en el cursor y qué funciones hay
+# 4. Ámbitos: qué variables se ven en el cursor y qué funciones hay
 def _tipo_en(toks, k):
     """Si en toks[k] empieza un tipo, devuelve (tipo, índice siguiente)."""
     if toks[k].tipo == "list" and k + 1 < len(toks) and toks[k + 1].tipo in TIPOS:
@@ -409,7 +576,7 @@ def ll1_funciones(toks):
     return funcs
 
 
-# 6. Sugerencias
+# 5. Sugerencias
 INTRINSECAS = {  # nombre -> tipo de retorno (src/semantico.c)
     "autenticar": "vacio", "cerrar_sesion": "vacio", "leer_estado": "ent",
     "cargar_llave": "vacio", "ronda_feistel": "vacio", "feistel_cifrar": "vacio",
@@ -473,7 +640,7 @@ def ll1_sugerir(texto, pos):
     return prefijo, [s for s in sugs if s.label.startswith(prefijo)]
 
 
-# 7. Popup mientras se escribe. Se abre al escribir letras (y después de
+# 6. Popup mientras se escribe. Se abre al escribir letras (y después de
 # `llamar `). Enter/Tab insertan, Esc cierra y las flechas navegan.
 class CompletadorJaf:
     def __init__(self, editor):
