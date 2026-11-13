@@ -7,6 +7,8 @@
  * Con -x la entrada es un .asm: se ensambla y se salta directo a la resolución
  *   y la codificación.
  */
+#include "ir_tac.h"
+#include "cfg.h"
 #include "ast.h"
 #include "codegen.h"
 #include "emisor.h"
@@ -390,6 +392,25 @@ int main(int argc, char **argv)
     }
     if (opt_tabla) {
         sem_imprimir_tabla(stdout);
+    }
+
+    /* TAC y bloques basicos se generan desde el AST, antes del codigo VLIW.
+       POr ahora se conserva el generador de P1 para no cambiar el binario. */
+    if (opt_ir || opt_cfg) {
+        CodigoTac tac;
+        tac_generar(ast_raiz, &tac);
+        if (opt_ir) {
+            printf("=== Codigo intermedio (TAC) ===\n");
+            tac_imprimir(&tac, stdout);
+        }
+        if (opt_cfg) {
+            GrafoFlujo grafo;
+            cfg_construir(&tac, &grafo);
+            printf("=== Bloques basicos y CFG ===\n");
+            cfg_imprimir(&tac, &grafo, stdout);
+            cfg_liberar(&grafo);
+        }
+        tac_liberar(&tac);
     }
 
     /* ---- fases 4 a 6: código, planificación, codificación ---- */

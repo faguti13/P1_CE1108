@@ -39,7 +39,7 @@ VLIW_DIR ?= ../vliw_grupo2
 # planificador, emisor del .asm y ensamblador propio (-x: de .asm a .bin).
 OBJS = build/main.o build/lexer.o build/parser.o build/ast.o build/tokens.o \
     build/isa.o build/semantico.o build/codegen.o build/planificador.o \
-    build/emisor.o build/ensamblador.o build/ide.o build/clones.o build/fixes.o
+    build/emisor.o build/ensamblador.o build/ide.o build/clones.o build/fixes.o build/ir_tac.o
 
 # Fuente y carpeta de las vistas para el avance (make tabla, json, asm, bin, paquetes, vista).
 SRC   ?= ejercicios/ej1_factorial.oly
@@ -209,3 +209,10 @@ DOCS = docs/01_arquitectura.md docs/02_lenguaje.md docs/03_algoritmos.md docs/04
 pdf:
 	python3 tests/gen_04_ejemplos.py
 	python3 docs/md2pdf.py docs/JAF-compilador.pdf "Compilador JAF para Feistel4-VLIW" $(DOCS)
+
+
+# Prueba de TAC y bloques basicos sin necesitar flex/bison.
+.PHONY: test-ir
+test-ir:
+	$(CC) $(CFLAGS) tests/ir/test_tac.c src/ir_tac.c src/cfg.c -o /tmp/jaf_test_ir
+	/tmp/jaf_test_ir
