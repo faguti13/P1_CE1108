@@ -235,6 +235,7 @@ int main(int argc, char **argv)
     const char *salida = NULL;
     int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
     int opt_x = 0, opt_mem = 0, opt_ide = 0, verboso = 0;
+    int opt_ir = 0, opt_cfg = 0;
     char *salida_def = NULL;
     char *asm_ruta = NULL;
     char *rutas[32];
@@ -257,6 +258,10 @@ int main(int argc, char **argv)
             opt_json = 1;
         } else if (!strcmp(a, "--ide")) {
             opt_ide = 1;
+        } else if (!strcmp(a, "--ir") || !strcmp(a, "-i")) {
+            opt_ir = 1;
+        } else if (!strcmp(a, "--cfg")) {
+            opt_cfg = 1;
         } else if (!strcmp(a, "-m")) {
             opt_tabla = 1;
         } else if (!strcmp(a, "-p")) {
