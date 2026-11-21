@@ -1,0 +1,2 @@
+HALT cycles=376 bundles=341 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+maximo_lista: PASS

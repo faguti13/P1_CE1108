@@ -1,0 +1,2 @@
+mem 0x10000 = 28   # suma
+mem 0x10004 = 28   # resultado

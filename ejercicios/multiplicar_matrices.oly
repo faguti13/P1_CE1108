@@ -1,0 +1,24 @@
+$ multiplicar_matrices.oly - Producto de dos matrices de 2x2 con tres ciclos
+$ anidados. El resultado va en una lista por referencia, declarada primero:
+$ sus datos empiezan en 0x10008.
+$   resultado = [[19, 22], [43, 50]]
+
+list ent resultado[2][2];
+list ent a = [[1, 2], [3, 4]];
+list ent b = [[5, 6], [7, 8]];
+
+vacio def multiplicar_matrices(list ent x, list ent y, ent filasA, ent columnasA, ent columnasB, list ent r) {
+    para (ent i = 0; i < filasA; i += 1) {
+        para (ent j = 0; j < columnasB; j += 1) {
+            ent suma = 0;
+            para (ent k = 0; k < columnasA; k += 1) {
+                suma += x[i][k] * y[k][j];
+            }
+            r[i][j] = suma;
+        }
+    }
+}
+
+vacio def main() {
+    llamar multiplicar_matrices(a, b, 2, 2, 2, resultado);
+}

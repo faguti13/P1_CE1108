@@ -1,0 +1,2 @@
+HALT cycles=1225 bundles=1044 illegal=0 hazards_raw=0 hazards_waw=0 SR=00000000
+suma_primos: PASS

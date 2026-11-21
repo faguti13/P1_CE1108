@@ -1,0 +1,39 @@
+$ suma_mayores.oly - Ciclo mientras con condicionales anidados que acumula el
+$ maximo de una lista hasta que la suma llega a 100.
+$ maximo_lista se repite aqui porque #import no se procesa en esta version.
+$   suma           = 100
+$   multiplicacion = 10
+
+ent suma = 0;
+ent multiplicacion = 1;
+list ent datos = [10, 2, 3, 4];
+
+ent def maximo_lista(list ent lista, ent largo) {
+    ent mayor = lista[0];
+    para (ent i = 0; i < largo; i += 1) {
+        si (lista[i] > mayor) {
+            mayor = lista[i];
+        }
+    }
+    retorno (mayor);
+}
+
+vacio def sumeMayores(list ent lista, ent largo) {
+    mientras (suma < 100) {
+        ent valorMaximo = llamar maximo_lista(lista, largo);
+        si (valorMaximo / 2 == 5) {
+            valorMaximo = valorMaximo * 2;
+        }
+        suma += valorMaximo;
+        multiplicacion = multiplicacion * valorMaximo;
+        si (multiplicacion > 500) {
+            multiplicacion = 10;
+        } sino {
+            multiplicacion = multiplicacion - 10;
+        }
+    }
+}
+
+vacio def main() {
+    llamar sumeMayores(datos, 4);
+}

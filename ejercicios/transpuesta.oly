@@ -1,0 +1,19 @@
+$ transpuesta.oly - Transpuesta de una matriz de 2x3. El resultado se escribe en
+$ una lista pasada por referencia. Se declara primero para que sus datos
+$ empiecen en 0x10008 (0x10000 = filas, 0x10004 = columnas).
+$   transpuesta = [[1, 4], [2, 5], [3, 6]]
+
+list ent transpuesta[3][2];
+list ent matriz = [[-1, -2, -3], [4, 5, 6]];
+
+vacio def transponer_matriz(list ent m, ent filas, ent columnas, list ent t) {
+    para (ent j = 0; j < columnas; j += 1) {
+        para (ent i = 0; i < filas; i += 1) {
+            t[j][i] = m[i][j];
+        }
+    }
+}
+
+vacio def main() {
+    llamar transponer_matriz(matriz, 2, 3, transpuesta);
+}

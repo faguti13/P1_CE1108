@@ -1,0 +1,8 @@
+mem 0x10000 = 3   # filas de la transpuesta
+mem 0x10004 = 2   # columnas de la transpuesta
+mem 0x10008 = 1   # t[0][0]
+mem 0x1000C = 4   # t[0][1]
+mem 0x10010 = 2   # t[1][0]
+mem 0x10014 = 5   # t[1][1]
+mem 0x10018 = 3   # t[2][0]
+mem 0x1001C = 6   # t[2][1]
