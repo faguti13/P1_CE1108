@@ -1,0 +1,24 @@
+$ Prueba: verifica renombrado de virtuales; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ rename_waw.oly - Escrituras sucesivas a la misma variable en un bloque (WAW).
+$ --rename da un virtual nuevo a cada definicion salvo la ultima.
+$   out = [15, 22, 44, 40, 10, 140]
+
+list ent out[6];
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent x = 3;
+    ent y = 0;
+    x = x * 5;
+    out[0] = x;
+    x = x + 7;
+    out[1] = x;
+    x = x * 2;
+    out[2] = x;
+    y = x - 4;
+    out[3] = y;
+    x = y / 4;
+    out[4] = x;
+    x = 100;
+    out[5] = x + y;
+}

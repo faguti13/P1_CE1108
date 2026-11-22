@@ -1,0 +1,28 @@
+$ Prueba: verifica derrame de registros; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ spill_anidado_llamadas.oly - Llamadas anidadas dentro de expresiones con muchos
+$ valores vivos: cada call guarda y recarga los registros vivos (caller-save).
+$   g(x) = 3x + 1, h(a, b, c) = a + b*c
+$   res = h(g(1), g(g(2)), h(3, g(4), 5)) + p + q + s = 4 + 22*68 + 15 = 1515
+
+ent res = 0;
+ent cuenta = 0;
+
+$ Hace: calcula un valor auxiliar; recibe: x; genera: valor calculado.
+ent def g(ent x) {
+    cuenta += 1;
+    retorno (x * 3 + 1);
+}
+
+$ Hace: combina los resultados auxiliares; recibe: a, b, c; genera: valor calculado.
+ent def h(ent a, ent b, ent c) {
+    cuenta += 1;
+    retorno (a + b * c);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent p = 4;
+    ent q = 5;
+    ent s = 6;
+    res = llamar h(llamar g(1), llamar g(llamar g(2)), llamar h(3, llamar g(4), 5)) + p + q + s;
+}

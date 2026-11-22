@@ -1,0 +1,46 @@
+$ Prueba: verifica derrame de registros; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ spill_lazo_acumuladores.oly - 10 acumuladores vivos durante todo el lazo, mas
+$ el indice, el limite y la base: con --max-regs bajo hay derrames dentro del lazo.
+
+list ent d[32];
+list ent acc[10];
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent a0 = 0;
+    ent a1 = 0;
+    ent a2 = 0;
+    ent a3 = 0;
+    ent a4 = 0;
+    ent a5 = 0;
+    ent a6 = 0;
+    ent a7 = 0;
+    ent a8 = 0;
+    ent a9 = 0;
+    para (ent i = 0; i < 32; i += 1) {
+        d[i] = i + 1;
+    }
+    para (ent j = 0; j < 32; j += 1) {
+        ent x = d[j];
+        a0 += x;
+        a1 += x * 2;
+        a2 += x * x;
+        a3 -= x;
+        a4 += x % 7;
+        a5 += x / 3;
+        a6 += j;
+        a7 += x + j;
+        a8 += 1;
+        a9 += x * j;
+    }
+    acc[0] = a0;
+    acc[1] = a1;
+    acc[2] = a2;
+    acc[3] = a3;
+    acc[4] = a4;
+    acc[5] = a5;
+    acc[6] = a6;
+    acc[7] = a7;
+    acc[8] = a8;
+    acc[9] = a9;
+}

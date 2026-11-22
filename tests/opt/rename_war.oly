@@ -1,0 +1,23 @@
+$ Prueba: verifica renombrado de virtuales; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ rename_war.oly - Lecturas seguidas de una escritura a la misma variable (WAR).
+$   out = [30, 90, 900, 75, 91]
+
+list ent out[5];
+
+$ Hace: combina sus argumentos; recibe: a, b, c; genera: valor calculado.
+ent def mezcla(ent a, ent b, ent c) {
+    out[0] = a + b;
+    a = c * 2;
+    out[1] = a + c;
+    c = b - 5;
+    out[2] = a * c;
+    b = a + c;
+    out[3] = b;
+    a = 1;
+    retorno (a + b + c);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    out[4] = llamar mezcla(10, 20, 30);
+}

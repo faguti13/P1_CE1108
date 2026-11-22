@@ -1,0 +1,8 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/rename_war.oly)
+mem 0x10000 = 0x00000005   # out.dim0
+mem 0x10004 = 0x00000001   # out.dim1
+mem 0x10008 = 0x0000001E   # out[0]
+mem 0x1000C = 0x0000005A   # out[1]
+mem 0x10010 = 0x00000384   # out[2]
+mem 0x10014 = 0x0000004B   # out[3]
+mem 0x10018 = 0x0000005B   # out[4]

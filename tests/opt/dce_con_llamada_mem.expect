@@ -1,0 +1,5 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/dce_con_llamada_mem.oly)
+mem 0x10000 = 0x00000002   # contador
+mem 0x10004 = 0x000004D2   # leido
+mem 0x10F00 = 0x000004D2   # extra
+mem 0x10F04 = 0x00000000   # extra

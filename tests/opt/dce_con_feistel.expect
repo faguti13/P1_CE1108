@@ -1,0 +1,4 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/dce_con_feistel.oly)
+mem 0x10000 = 0x54C224BE   # gl
+mem 0x10004 = 0xC44FBD5C   # gr
+mem 0x10008 = 0x00000001   # estado

@@ -1,0 +1,41 @@
+$ Prueba: verifica reordenamiento de instrucciones; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ reorder_ramas.oly - Calculos alrededor de saltos condicionales: el reordenamiento
+$ es por bloque basico y nunca cruza un salto.
+$   r = [10, 103, 144, 0, 109], suma = 366
+
+list ent r[5];
+ent suma = 0;
+
+$ Hace: clasifica el argumento; recibe: x; genera: valor calculado.
+ent def clasifica(ent x) {
+    ent y = 0;
+    si (x < 0) {
+        y = -x * 2;
+    } sino {
+        si (x < 10) {
+            y = x + 100;
+        } sino {
+            y = x * x;
+        }
+    }
+    si (x == 0) {
+        y = 0;
+    }
+    retorno (y);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent s = 0;
+    r[0] = llamar clasifica(-5);
+    r[1] = llamar clasifica(3);
+    r[2] = llamar clasifica(12);
+    r[3] = llamar clasifica(0);
+    r[4] = llamar clasifica(9);
+    para (ent i = 0; i < 5; i += 1) {
+        si (r[i] > 50 || r[i] == 10) {
+            s += r[i];
+        }
+    }
+    suma = s;
+}

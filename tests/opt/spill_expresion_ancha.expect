@@ -1,0 +1,3 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/spill_expresion_ancha.oly)
+mem 0x10000 = 0x00000302   # prod
+mem 0x10004 = 0x000000D2   # todas

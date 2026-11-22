@@ -1,0 +1,44 @@
+$ Prueba: verifica desenrollado de bucles; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ unroll_var_grande.oly - N = 256 sobre un arreglo de 1 KB (32 lineas de L1):
+$ el unroll quita saltos y la presion queda en la L1-D.
+$   datos[i] = (37 i) % 101; suma y maximo se comparan con P1.
+
+list ent datos[256];
+ent suma = 0;
+ent maximo = 0;
+ent ultimo = 0;
+
+$ Hace: rellena los elementos de la lista; recibe: d, n; genera: cambios en variables de prueba.
+vacio def llenar(list ent d, ent n) {
+    para (ent i = 0; i < n; i += 1) {
+        d[i] = (i * 37) % 101;
+    }
+}
+
+$ Hace: calcula la suma de elementos; recibe: d, n; genera: valor calculado.
+ent def sumar(list ent d, ent n) {
+    ent s = 0;
+    para (ent i = 0; i < n; i += 1) {
+        s += d[i];
+    }
+    retorno (s);
+}
+
+$ Hace: busca el valor maximo; recibe: d, n; genera: valor calculado.
+ent def mayor(list ent d, ent n) {
+    ent m = 0;
+    para (ent i = 0; i < n; i += 1) {
+        si (d[i] > m) {
+            m = d[i];
+        }
+    }
+    retorno (m);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    llamar llenar(datos, 256);
+    suma = llamar sumar(datos, 256);
+    maximo = llamar mayor(datos, 256);
+    ultimo = datos[255];
+}

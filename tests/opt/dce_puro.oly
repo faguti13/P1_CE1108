@@ -1,0 +1,33 @@
+$ Prueba: verifica eliminacion de codigo muerto; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ dce_puro.oly - Calculos cuyo valor nunca se usa, ramas con condicion constante
+$ y un lazo que nunca corre: --dce los quita sin cambiar el resultado.
+$   resultado = 42, otro = 7
+
+ent resultado = 0;
+ent otro = 0;
+
+$ Hace: calcula el resultado de la expresion; recibe: x; genera: valor calculado.
+ent def calcula(ent x) {
+    ent muerto = x * 1000;
+    ent tambien = muerto + 5;
+    ent vivo = x + 1;
+    si (falso) {
+        vivo = 999;
+    }
+    mientras (falso) {
+        vivo = 0;
+    }
+    si (verdadero) {
+        tambien = vivo * 3;
+    }
+    retorno (vivo * 2);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent basura = 12345;
+    ent a = 3;
+    basura = basura * a;
+    resultado = llamar calcula(20);
+    otro = a + 4;
+}

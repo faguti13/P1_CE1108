@@ -1,0 +1,5 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/reorder_llamadas.oly)
+mem 0x10000 = 0x00000023   # z
+mem 0x10004 = 0x00000011   # w
+mem 0x10008 = 0x00000079   # q
+mem 0x1000C = 0x00000003   # g

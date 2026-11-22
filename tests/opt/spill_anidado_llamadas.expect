@@ -1,0 +1,3 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/spill_anidado_llamadas.oly)
+mem 0x10000 = 0x000005EB   # res
+mem 0x10004 = 0x00000006   # cuenta

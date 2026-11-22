@@ -1,0 +1,44 @@
+$ Prueba: verifica desenrollado de bucles; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ unroll_var_peq.oly - N conocido solo en ejecucion (parametro), pequeno y con
+$ residuo: 13 = 3*4 + 1, el lazo epilogo hace la vuelta que sobra.
+$   suma = sum(i^2, i = 0..12) = 650, ultimo = 144, pares = 7
+
+list ent v[13];
+ent suma = 0;
+ent ultimo = 0;
+ent pares = 0;
+
+$ Hace: rellena los elementos de la lista; recibe: d, n; genera: cambios en variables de prueba.
+vacio def llenar(list ent d, ent n) {
+    para (ent i = 0; i < n; i += 1) {
+        d[i] = i * i;
+    }
+}
+
+$ Hace: calcula la suma de elementos; recibe: d, n; genera: valor calculado.
+ent def sumar(list ent d, ent n) {
+    ent s = 0;
+    para (ent i = 0; i < n; i += 1) {
+        s += d[i];
+    }
+    retorno (s);
+}
+
+$ Hace: cuenta los valores pares; recibe: d, n; genera: valor calculado.
+ent def contar_pares(list ent d, ent n) {
+    ent c = 0;
+    para (ent i = 0; i < n; i += 1) {
+        si (d[i] % 2 == 0) {
+            c += 1;
+        }
+    }
+    retorno (c);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    llamar llenar(v, 13);
+    suma = llamar sumar(v, 13);
+    ultimo = v[12];
+    pares = llamar contar_pares(v, 13);
+}

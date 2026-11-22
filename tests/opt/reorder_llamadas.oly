@@ -1,0 +1,28 @@
+$ Prueba: verifica reordenamiento de instrucciones; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ reorder_llamadas.oly - Las llamadas son barreras: los valores vivos a traves de
+$ un call se guardan y recargan (caller-save) y el codigo no cruza el call.
+$   z = 35, w = 17, q = 35 + 17 + (17*2 + 35) = 121, g = 3
+
+ent z = 0;
+ent w = 0;
+ent q = 0;
+ent g = 0;
+
+$ Hace: realiza el calculo de la prueba; recibe: a, b; genera: valor calculado.
+ent def f(ent a, ent b) {
+    g += 1;
+    retorno (a * 2 + b);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent x = 5;
+    ent y = 7;
+    ent zz = x * y;
+    ent ww = llamar f(x, y);
+    ent qq = zz + ww + llamar f(ww, zz);
+    llamar f(0, 0);
+    z = zz;
+    w = ww;
+    q = qq;
+}

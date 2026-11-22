@@ -1,0 +1,27 @@
+$ Prueba: verifica eliminacion de codigo muerto; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ dce_con_feistel.oly - La boveda y Feistel tienen efectos: autenticar, cargar_llave
+$ y un cifrado cuyo resultado no se usa siguen ahi con --dce.
+$ Misma llave que ej3_feistel: E(0x01234567, 0x89ABCDEF) = (0x54C224BE, 0xC44FBD5C).
+
+ent gl = 0;
+ent gr = 0;
+ent estado = 0;
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent a = 0x01234567;
+    ent b = 0x89ABCDEF;
+    ent c = 0x01234567;
+    ent d = 0x89ABCDEF;
+    llamar autenticar(0xCAFE1234);
+    llamar cargar_llave(0x00112233, 0, 0);
+    llamar cargar_llave(0x44556677, 0, 1);
+    llamar cargar_llave(0x8899AABB, 0, 2);
+    llamar cargar_llave(0xCCDDEEFF, 0, 3);
+    llamar feistel_cifrar(a, b, 0);
+    llamar feistel_cifrar(c, d, 0);
+    gl = c;
+    gr = d;
+    estado = llamar leer_estado();
+    llamar cerrar_sesion();
+}
