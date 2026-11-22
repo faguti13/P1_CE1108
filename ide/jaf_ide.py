@@ -11,6 +11,7 @@ import json
 import os
 import pty
 import re
+import shlex
 import shutil
 import signal
 import struct
@@ -20,7 +21,7 @@ import termios
 from dataclasses import dataclass
 
 try:
-    from PyQt6.QtCore import Qt, QSize, QSocketNotifier, QTimer
+    from PyQt6.QtCore import Qt, QEvent, QProcess, QSize, QSocketNotifier, QTimer
     from PyQt6.QtGui import (
         QAction, QColor, QFont, QKeySequence, QPainter, QTextCharFormat,
         QTextCursor, QTextFormat, QSyntaxHighlighter, QStandardItem, QStandardItemModel,
@@ -30,11 +31,12 @@ try:
         QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QStatusBar,
         QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
         QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-        QListWidget, QDialog, QPushButton, QTextEdit, QCompleter,
+        QListWidget, QDialog, QPushButton, QTextEdit, QCompleter, QComboBox,
+        QCheckBox, QSpinBox, QToolTip,
     )
 except ImportError:
     try:
-        from PySide6.QtCore import Qt, QSize, QSocketNotifier, QTimer
+        from PySide6.QtCore import Qt, QEvent, QProcess, QSize, QSocketNotifier, QTimer
         from PySide6.QtGui import (
             QAction, QColor, QFont, QKeySequence, QPainter, QTextCharFormat,
             QTextCursor, QTextFormat, QSyntaxHighlighter, QStandardItem, QStandardItemModel,
@@ -44,7 +46,8 @@ except ImportError:
             QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QStatusBar,
             QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
             QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-            QListWidget, QDialog, QPushButton, QTextEdit, QCompleter,
+            QListWidget, QDialog, QPushButton, QTextEdit, QCompleter, QComboBox,
+            QCheckBox, QSpinBox, QToolTip,
         )
     except ImportError:
         print(
@@ -56,7 +59,21 @@ except ImportError:
         sys.exit(1)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vistas import VistaAst, VistaIR, VistaLL1, VistaMetricas, VistaPaquetes, VistaSimbolos  # noqa: E402
+
+VLIW_DIR = os.environ.get("VLIW_DIR", os.path.join(os.path.dirname(ROOT), "vliw_grupo2"))
 JAF = os.environ.get("JAF", os.path.join(ROOT, "build", "jaf"))
+
+
+def jaf_tiene_opt():
+    """True si build/jaf ya trae -O0/-O1/-O2 (tuberia del Integrante 4). Sin ella, la
+    barra de optimizacion queda desactivada y las vistas muestran solo la parte de P1."""
+    try:
+        r = subprocess.run([JAF, "-h"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "-O2" in (r.stdout + r.stderr)
 SKIP_DIRS = {".git", "build", "__pycache__", ".cursor", "node_modules", ".venv"}
 TEXT_EXTS = {".oly", ".asm", ".c", ".h", ".md", ".txt", ".expect", ".json", ".py", ".y", ".l"}
 NUEVO_OLY = """$ archivo nuevo JAF
@@ -106,6 +123,9 @@ QDialog { background:#252526; color:#ccc; }
 QListWidget { background:#252526; border:1px solid #454545; }
 QListWidget::item { padding:6px 10px; }
 QListWidget::item:selected { background:#094771; }
+QCheckBox { color:#ccc; }
+QCheckBox::indicator { width:12px; height:12px; border:1px solid #888; border-radius:2px; background:#2d2d2d; }
+QCheckBox::indicator:checked { background:#0e8ad8; border-color:#0e8ad8; }
 QPushButton { background:#0e639c; color:#fff; border:none; border-radius:4px; padding:8px 14px; }
 QPushButton:hover { background:#1177bb; }
 QLineEdit { background:#3c3c3c; border:1px solid #3c3c3c; border-radius:3px;
@@ -511,6 +531,55 @@ def _match_con(pila, a):
     return None
 
 
+def ll1_traza(tokens, limite=6000):
+    """Corre el analizador sobre todos los tokens (más `$`) y anota cada paso para la
+    vista LL(1): pila, entrada restante, acción, celda M[A,a] usada y posición del token.
+    Recupera igual que ll1_pila: un terminal que no coincide se da por insertado y un
+    token sin producción se descarta. Devuelve (pasos, {(A, a): veces usada})."""
+    entrada = [t.tipo for t in tokens] + ["$"]
+    pila = ["$", "programa"]
+    pasos, celdas = [], {}
+    i = 0
+    while pila and len(pasos) < limite:
+        top, a = pila[-1], entrada[i]
+        vista_pila = " ".join(base(s) for s in pila[-10:])
+        resto = entrada[i:i + 8]
+        paso = {"pila": ("… " if len(pila) > 10 else "") + vista_pila,
+                "entrada": " ".join(resto) + (" …" if len(entrada) - i > 8 else ""),
+                "celda": None, "pos": tokens[i].ini if i < len(tokens) else None}
+        if top == "$" and a == "$":
+            paso["accion"] = "aceptar"
+            pasos.append(paso)
+            break
+        if top == "$":
+            paso["accion"] = f"error: sobra '{a}' (se descarta)"
+            i += 1
+        elif top not in TABLA:
+            pila.pop()
+            if base(top) == a:
+                paso["accion"] = f"match {a}"
+                i += 1
+            else:
+                paso["accion"] = f"error: se esperaba '{base(top)}' (se inserta)"
+        elif a in TABLA[top]:
+            pila.pop()
+            prod = TABLA[top][a]
+            for simbolo in reversed(prod):
+                if simbolo != "ε":
+                    pila.append(simbolo)
+            paso["accion"] = f"M[{top}, {a}] = {top} → {' '.join(base(s) for s in prod)}"
+            paso["celda"] = (top, a)
+            celdas[(top, a)] = celdas.get((top, a), 0) + 1
+        elif a == "$":
+            pila.pop()                               # el archivo terminó antes: se cierra A
+            paso["accion"] = f"error: M[{top}, $] vacía (fin de archivo, se quita {top})"
+        else:
+            paso["accion"] = f"error: M[{top}, {a}] vacía (se descarta '{a}')"
+            i += 1
+        pasos.append(paso)
+    return pasos, celdas
+
+
 TERMINALES = sorted({a for fila in TABLA.values() for a in fila} - {"$"})
 
 
@@ -738,10 +807,8 @@ class JafHighlighter(QSyntaxHighlighter):
         st.setForeground(QColor("#ce9178"))
         num.setForeground(QColor("#b5cea8"))
         self.rules += [(r"\$.*", cmt), (r'"[^"]*"', st), (r"\b\d+\b", num)]
-        self.err = QTextCharFormat()
-        self.err.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
-        self.err.setUnderlineColor(QColor("#f14c4c"))
-        self.err.setBackground(QColor("#5a1d1d"))
+        self.err = QTextCharFormat()             # la línea se tiñe; el token exacto lo subraya el editor
+        self.err.setBackground(QColor("#3b1f1f"))
         self.error_lines: set[int] = set()
 
     def set_errors(self, lines):
@@ -753,7 +820,10 @@ class JafHighlighter(QSyntaxHighlighter):
             for m in re.finditer(pat, text):
                 self.setFormat(m.start(), m.end() - m.start(), fmt)
         if self.currentBlock().blockNumber() + 1 in self.error_lines:
-            self.setFormat(0, len(text), self.err)
+            for k in range(len(text)):
+                f = self.format(k)
+                f.setBackground(self.err.background())
+                self.setFormat(k, 1, f)
 
 
 class LineNumberArea(QWidget):
@@ -1205,6 +1275,9 @@ class CodeEditor(QPlainTextEdit):
         self.on_cursor = on_cursor
         self._loading = False
         self._zoom_cb = None
+        self._sel_linea = None
+        self._sel_err = []
+        self._rangos_err = []                        # (inicio, fin, mensaje) en offsets del documento
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.highlighter = JafHighlighter(self.document())
         self.line_area = LineNumberArea(self)
@@ -1272,9 +1345,13 @@ class CodeEditor(QPlainTextEdit):
         es.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         es.cursor = self.textCursor()
         es.cursor.clearSelection()
-        self.setExtraSelections([es])
+        self._sel_linea = es
+        self._aplicar_selecciones()
         if self.on_cursor:
             self.on_cursor()
+
+    def _aplicar_selecciones(self):
+        self.setExtraSelections(([self._sel_linea] if self._sel_linea else []) + self._sel_err)
 
     def line_number_area_width(self):
         return 12 + self.fontMetrics().horizontalAdvance("9") * len(str(max(1, self.blockCount())))
@@ -1322,6 +1399,60 @@ class CodeEditor(QPlainTextEdit):
                 continue
             lines.add(max(1, int(d.get("line", 1))))
         self.highlighter.set_errors(lines)
+        self._subrayar(diags, base)
+
+    TOKEN_ERR = re.compile(r"[A-Za-z_]\w*|0[xX][0-9A-Fa-f]+|\d+|==|!=|<=|>=|&&|\|\||\S")
+
+    def _subrayar(self, diags, base):
+        """Onda roja bajo el token de cada diagnóstico (línea:col del compilador, en bytes)."""
+        self._sel_err, self._rangos_err = [], []
+        doc = self.document()
+        for d in diags:
+            f = os.path.basename(d.get("file", "") or "")
+            if f and f != base:
+                continue
+            bloque = doc.findBlockByNumber(max(1, int(d.get("line", 1))) - 1)
+            if not bloque.isValid():
+                continue
+            texto = bloque.text()
+            col = len(texto.encode("utf-8")[:max(0, int(d.get("col", 1)) - 1)].decode("utf-8", "ignore"))
+            if col >= len(texto.rstrip()):
+                col = max(0, len(texto.rstrip()) - 1)        # p. ej. falta ';' al final de la línea
+            m = self.TOKEN_ERR.search(texto, col)
+            ini, fin = (m.start(), m.end()) if m else (0, max(1, len(texto)))
+            msg = f"[{d.get('code')}] {d.get('msg')}"
+            es = QTextEdit.ExtraSelection()
+            es.format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
+            es.format.setUnderlineColor(QColor("#f14c4c"))
+            es.format.setToolTip(msg)
+            es.cursor = QTextCursor(doc)
+            es.cursor.setPosition(bloque.position() + ini)
+            es.cursor.setPosition(bloque.position() + fin, QTextCursor.MoveMode.KeepAnchor)
+            self._sel_err.append(es)
+            self._rangos_err.append((bloque.position() + ini, bloque.position() + fin, msg))
+        self._aplicar_selecciones()
+
+    def viewportEvent(self, e):
+        if e.type() == QEvent.Type.ToolTip:
+            pos = self.cursorForPosition(e.pos()).position()
+            msgs = [m for a, b, m in self._rangos_err if a <= pos <= b]
+            if msgs:
+                QToolTip.showText(e.globalPos(), "\n".join(msgs), self.viewport())
+            else:
+                QToolTip.hideText()
+            return True
+        return super().viewportEvent(e)
+
+    def ir_a(self, linea, col=1):
+        """Pone el cursor en linea:col (col del compilador, en bytes) y lo centra."""
+        bloque = self.document().findBlockByNumber(max(0, linea - 1))
+        if not bloque.isValid():
+            return
+        c = len(bloque.text().encode("utf-8")[:max(0, col - 1)].decode("utf-8", "ignore"))
+        cur = QTextCursor(bloque)
+        cur.setPosition(bloque.position() + min(c, len(bloque.text())))
+        self.setTextCursor(cur)
+        self.centerCursor()
 
     def goto_line(self, line):
         self.setTextCursor(QTextCursor(self.document().findBlockByNumber(max(0, line - 1))))
@@ -1337,7 +1468,7 @@ class JafIde(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("JAF")
-        self.resize(1280, 800)
+        self.resize(1560, 900)
         self.workspace = None
         self.buffers = {}
         self.dirty = set()
@@ -1378,6 +1509,15 @@ class JafIde(QMainWindow):
         self._act(an, "Analizar", "F5", self.analizar)
         self._act(an, "Aplicar fix", None, self.aplicar_fix)
         self._act(an, "Sugerencias", "Ctrl+Space", self.sugerir)
+        comp = m.addMenu("Compilar")
+        self._act(comp, "Inspeccionar (AST, IR, paquetes, métricas)", "F6", self.inspeccionar)
+        self._act(comp, "Compilar .bin + .asm", "F7", self.compilar)
+        self._act(comp, "Simular en VLIW (RTL)", "F8", self.simular_rtl)
+        comp.addSeparator()
+        self._act(comp, "Exportar .asm…", None, self.exportar_asm)
+        self._act(comp, "Exportar .ir…", None, self.exportar_ir)
+        self._act(comp, "Exportar AST .json…", None, self.exportar_ast)
+        self._act(comp, "Exportar métricas .json…", None, self.exportar_metricas)
         ver = m.addMenu("Ver")
         self._act(ver, "Acercar", "Ctrl+=", self.zoom_in)
         self._act(ver, "Acercar", "Ctrl++", self.zoom_in)  # teclado numérico / algunas layouts
@@ -1385,6 +1525,8 @@ class JafIde(QMainWindow):
         self._act(ver, "Zoom normal", "Ctrl+0", self.zoom_reset)
         ver.addSeparator()
         self._act(ver, "Terminal", "Ctrl+`", self.focus_terminal)
+        self._act(ver, "Mostrar/ocultar inspector", "Ctrl+I",
+                  lambda: self.insp.setVisible(not self.insp.isVisible()))
 
         tb = QToolBar()
         tb.setMovable(False)
@@ -1401,6 +1543,7 @@ class JafIde(QMainWindow):
             a = QAction(text, self)
             a.triggered.connect(slot)
             tb.addAction(a)
+        self._barra_optimizar()
 
         split = QSplitter()
         self.setCentralWidget(split)
@@ -1462,12 +1605,17 @@ class JafIde(QMainWindow):
         self.bottom.addTab(self.tbl_sug, "SUGERENCIAS")
         self.bottom.addTab(self.tbl_clo, "CLONES")
         self.bottom.addTab(self.terminal, "TERMINAL")
+        self.salida = QPlainTextEdit()
+        self.salida.setReadOnly(True)
+        self.salida.setFont(_mono_font(10))
+        self.bottom.addTab(self.salida, "SALIDA")
         self.vsplit.addWidget(self.bottom)
         self.vsplit.setStretchFactor(0, 5)
         self.vsplit.setStretchFactor(1, 1)
         self.vsplit.setSizes([720, 140])
         split.addWidget(self.vsplit)
-        split.setSizes([260, 1000])
+        split.addWidget(self._inspector())
+        split.setSizes([240, 640, 620])
 
         sb = QStatusBar()
         self.setStatusBar(sb)
@@ -1475,6 +1623,341 @@ class JafIde(QMainWindow):
         self.sr = QLabel("Ln 1, Col 1")
         sb.addWidget(self.sl, 1)
         sb.addPermanentWidget(self.sr)
+
+    # ---- Compilar / Optimizar -------------------------------------------------
+    HW = (("L1+L2 (base)", "tb_top.vvp"), ("Ideal (sin latencia)", "tb_top_ideal.vvp"),
+          ("Sin caché (DRAM)", "tb_top_nocache.vvp"), ("Solo L1", "tb_top_l1.vvp"),
+          ("L1 write-through", "tb_top_wt.vvp"),
+          ("Sin forwarding", "tb_top_nofwd.vvp"), ("fmem = 50 MHz", "tb_top_div2.vvp"),
+          ("fmem = 20 MHz", "tb_top_div5.vvp"))
+
+    def _barra_optimizar(self):
+        tb = QToolBar("Optimizar")
+        tb.setMovable(False)
+        self.addToolBarBreak()
+        self.addToolBar(tb)
+        estilo = ("QComboBox,QSpinBox{background:#3c3c3c;color:#ccc;border:none;border-radius:3px;"
+                  "padding:3px 6px;} QCheckBox{color:#ccc;padding:0 4px;}"
+                  "QCheckBox::indicator{width:12px;height:12px;border:1px solid #888;border-radius:2px;"
+                  "background:#2d2d2d;} QCheckBox::indicator:checked{background:#0e8ad8;border-color:#0e8ad8;}")
+        tb.setStyleSheet(estilo)
+        tb.addWidget(QLabel(" Nivel "))
+        self.cb_nivel = QComboBox()
+        self.cb_nivel.addItems(["P1", "-O0", "-O1", "-O2"])
+        self.cb_nivel.setCurrentText("-O2")
+        self.cb_nivel.setToolTip("P1: generador del Proyecto I · -O0: TAC sin optimizar\n"
+                                 "-O1: --spill --dce · -O2: -O1 + --unroll=auto --rename --reorder")
+        tb.addWidget(self.cb_nivel)
+        self.cb_unroll = QComboBox()
+        for txt, val in (("unroll —", ""), ("unroll auto", "auto"), ("unroll ×2", "2"),
+                         ("unroll ×4", "4"), ("unroll ×8", "8")):
+            self.cb_unroll.addItem(txt, val)
+        tb.addWidget(self.cb_unroll)
+        self.chk_opt = {}
+        for k in ("dce", "rename", "reorder", "spill"):
+            c = QCheckBox(f"--{k}")
+            self.chk_opt[k] = c
+            tb.addWidget(c)
+        tb.addWidget(QLabel(" regs "))
+        self.sp_regs = QSpinBox()
+        self.sp_regs.setRange(1, 16)
+        self.sp_regs.setValue(16)
+        self.sp_regs.setToolTip("--max-regs: registros asignables con --spill")
+        tb.addWidget(self.sp_regs)
+        tb.addSeparator()
+        for text, slot in (("Inspeccionar", self.inspeccionar), ("Compilar", self.compilar),
+                           ("Simular RTL", self.simular_rtl)):
+            a = QAction(text, self)
+            a.triggered.connect(slot)
+            tb.addAction(a)
+        self.cb_hw = QComboBox()
+        for txt, vvp in self.HW:
+            self.cb_hw.addItem(txt, vvp)
+        self.cb_hw.setToolTip("Configuración del procesador para Simular RTL (vliw_grupo2/build)")
+        tb.addWidget(self.cb_hw)
+        exp = QPushButton("Exportar ▾")
+        menu = QMenu(exp)
+        for text, slot in ((".asm…", self.exportar_asm), (".ir…", self.exportar_ir),
+                           ("AST .json…", self.exportar_ast), ("métricas .json…", self.exportar_metricas)):
+            menu.addAction(text, slot)
+        exp.setMenu(menu)
+        tb.addWidget(exp)
+        self.con_opt = jaf_tiene_opt()
+        if not self.con_opt:
+            self.cb_nivel.setCurrentText("P1")
+            aviso = ("Este build/jaf todavía no trae la tubería optimizadora (-O0/-O1/-O2).\n"
+                     "Se usa el generador de P1; IR, PAQUETES y MÉTRICAS muestran solo esa parte.")
+            for w in (self.cb_nivel, self.cb_unroll, *self.chk_opt.values(), self.sp_regs):
+                w.setEnabled(False)
+                w.setToolTip(aviso)
+
+    def _inspector(self):
+        self.insp = QTabWidget()
+        self.insp.setDocumentMode(True)
+        self.insp.setMinimumWidth(360)
+        self.v_ast = VistaAst()
+        self.v_ll1 = VistaLL1(TABLA, TERMINALES, self._analizar_ll1)
+        self.v_sim = VistaSimbolos()
+        self.v_ir = VistaIR()
+        self.v_paq = VistaPaquetes()
+        self.v_met = VistaMetricas()
+        self.v_ast.canvas.ir_a.connect(self._ir_a)
+        self.v_sim.ir_a.connect(self._ir_a)
+        self.v_paq.base.ir_a.connect(self._ir_a)
+        self.v_paq.opt.ir_a.connect(self._ir_a)
+        self.v_ll1.ir_a_pos.connect(self._ir_a_pos)
+        for w, nombre in ((self.v_ast, "AST"), (self.v_ll1, "LL(1)"), (self.v_sim, "SÍMBOLOS"),
+                          (self.v_ir, "IR"), (self.v_paq, "PAQUETES"), (self.v_met, "MÉTRICAS")):
+            self.insp.addTab(w, nombre)
+        self.ultimo_todo = {}
+        self.rtl = {}
+        return self.insp
+
+    def flags(self):
+        if not getattr(self, "con_opt", True):
+            return []
+        f = [] if self.cb_nivel.currentText() == "P1" else [self.cb_nivel.currentText()]
+        if self.cb_unroll.currentData():
+            f.append(f"--unroll={self.cb_unroll.currentData()}")
+        f += [f"--{k}" for k, c in self.chk_opt.items() if c.isChecked()]
+        if self.sp_regs.value() != 16:
+            f.append(f"--max-regs={self.sp_regs.value()}")
+        return f
+
+    def _archivo_listo(self):
+        p = self.current_path()
+        if not p or p.startswith("untitled:"):
+            QMessageBox.information(self, "JAF", "Guarda el archivo antes de compilar.")
+            return None
+        if p in self.dirty:
+            self.guardar()
+        if not os.path.isfile(JAF):
+            QMessageBox.critical(self, "JAF", f"No está {JAF}. Corre: make")
+            return None
+        return p
+
+    def _log(self, texto):
+        self.salida.appendPlainText(texto.rstrip("\n"))
+        self.bottom.setCurrentWidget(self.salida)
+
+    def _jaf(self, args, timeout=60):
+        self._log("$ jaf " + " ".join(os.path.relpath(a, ROOT) if os.path.isabs(a) else a for a in args))
+        try:
+            r = subprocess.run([JAF, *args], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            self._log(f"error: {e}")
+            return None
+        return r
+
+    def _salida_base(self, p):
+        d = os.path.join(ROOT, "build", "ide")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, os.path.splitext(os.path.basename(p))[0])
+
+    def compilar(self):
+        p = self._archivo_listo()
+        if not p:
+            return
+        b = self._salida_base(p)
+        r = self._jaf([*self.flags(), "-s", "--mem", "-v", p, "-o", b + ".bin"])
+        if r is None:
+            return
+        self._log((r.stdout + r.stderr).strip() or "(sin salida)")
+        if r.returncode == 0:
+            self.sl.setText(f"compilado → build/ide/{os.path.basename(b)}.bin (+ .asm, .mem)")
+            self.inspeccionar()
+        else:
+            self.sl.setText(f"la compilación falló (código {r.returncode}) — ver PROBLEMAS / SALIDA")
+            self.analizar()
+
+    def inspeccionar(self):
+        p = self._archivo_listo()
+        if not p:
+            return
+        r = self._jaf(["--ide-todo", p, *self.flags()], timeout=120)
+        if r is None:
+            return
+        try:
+            data = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            self._log((r.stderr or r.stdout)[:2000])
+            return
+        self.ultimo = data
+        self.ultimo_todo = data
+        self._mostrar_diagnosticos(data)
+        self.v_ast.canvas.cargar(data.get("ast"))
+        self.v_sim.cargar(data.get("simbolos"))
+        self.v_ir.cargar(data.get("ir"))
+        self.v_paq.cargar(data.get("paquetes"), (data.get("ir") or {}).get("con_opt", True))
+        self.v_met.cargar(data.get("metricas"),
+                          (" ".join(self.flags()) or "P1 vs -O0") if self.con_opt else "P1")
+        self.v_ll1.actualizar()
+        m = data.get("metricas", {})
+        if m.get("opt", {}).get("ok"):
+            b, o = m["base"]["sim"]["ciclos"], m["opt"]["sim"]["ciclos"]
+            self._log(f"inspección: {len(data.get('simbolos', []))} símbolos · ciclos P1 {b} → {o} "
+                      f"({b / max(1, o):.2f}×)")
+        else:
+            self._log(f"inspección: {len(data.get('diagnostics', []))} problema(s)")
+
+    def _analizar_ll1(self, hasta_cursor):
+        ed = self.current_editor()
+        if not ed:
+            return [], {}
+        toks, _ = ll1_tokenizar(ed.toPlainText())
+        if hasta_cursor:
+            pos = ed.textCursor().position()
+            toks = [t for t in toks if t.ini < pos]
+        return ll1_traza(toks)
+
+    def _ir_a(self, linea, col):
+        ed = self.current_editor()
+        if ed:
+            ed.ir_a(linea, col)
+
+    def _ir_a_pos(self, pos):
+        ed = self.current_editor()
+        if ed:
+            cur = ed.textCursor()
+            cur.setPosition(min(pos, len(ed.toPlainText())))
+            ed.setTextCursor(cur)
+            ed.centerCursor()
+
+    def _guardar_como(self, titulo, nombre, filtro):
+        p = self.current_path() or ""
+        base = os.path.dirname(p) if p and not p.startswith("untitled:") else (self.workspace or ROOT)
+        ruta, _ = QFileDialog.getSaveFileName(self, titulo, os.path.join(base, nombre), filtro)
+        return ruta
+
+    def _nombre(self, ext):
+        p = self.current_path() or "programa.oly"
+        return os.path.splitext(os.path.basename(p))[0] + ext
+
+    def exportar_asm(self):
+        p = self._archivo_listo()
+        if not p:
+            return
+        ruta = self._guardar_como("Exportar .asm", self._nombre(".asm"), "Ensamblador (*.asm)")
+        if not ruta:
+            return
+        b = self._salida_base(p)
+        r = self._jaf([*self.flags(), "-s", p, "-o", b + ".bin"])
+        if r is not None and r.returncode == 0:
+            shutil.copyfile(b + ".asm", ruta)
+            self.sl.setText(f"exportado {ruta}")
+        elif r is not None:
+            self._log(r.stderr)
+
+    def exportar_ir(self):
+        if not self.ultimo_todo:
+            self.inspeccionar()
+        ir = self.ultimo_todo.get("ir") or {}
+        if not ir.get("despues") and not ir.get("p1"):
+            self.sl.setText("sin IR: el programa tiene errores")
+            return
+        ruta = self._guardar_como("Exportar IR", self._nombre(".ir"), "TAC (*.ir *.txt)")
+        if ruta:
+            with open(ruta, "w", encoding="utf-8") as f:
+                if ir.get("despues"):
+                    f.write(f"; TAC recien generado\n{ir.get('antes', '')}\n"
+                            f"; TAC tras las pasadas ({' '.join(self.flags()) or '-O0'})\n{ir['despues']}")
+                else:
+                    f.write(f"; IR lineal del generador de P1 (antes de planificar)\n{ir['p1']}")
+            self.sl.setText(f"exportado {ruta}")
+
+    def exportar_ast(self):
+        p = self._archivo_listo()
+        if not p:
+            return
+        r = self._jaf(["--json", p])
+        if r is None or r.returncode != 0:
+            self._log(r.stderr if r else "")
+            return
+        ruta = self._guardar_como("Exportar AST", self._nombre(".ast.json"), "JSON (*.json)")
+        if ruta:
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(r.stdout)
+            self.sl.setText(f"exportado {ruta}")
+
+    def exportar_metricas(self):
+        if not self.ultimo_todo:
+            self.inspeccionar()
+        ruta = self._guardar_como("Exportar métricas", self._nombre(".metricas.json"), "JSON (*.json)")
+        if ruta:
+            with open(ruta, "w", encoding="utf-8") as f:
+                json.dump({"archivo": self.current_path(), "flags": self.flags(),
+                           "metricas": self.ultimo_todo.get("metricas"), "rtl": self.rtl}, f, indent=2)
+            self.sl.setText(f"exportado {ruta}")
+
+    def simular_rtl(self):
+        p = self._archivo_listo()
+        if not p:
+            return
+        vvp = os.path.join(VLIW_DIR, "build", self.cb_hw.currentData())
+        if not os.path.isfile(vvp) or not shutil.which("vvp"):
+            QMessageBox.critical(self, "Simular RTL", f"Falta {vvp} o Icarus (vvp).\n"
+                                 f"Corre: make -C {VLIW_DIR} tbs")
+            return
+        if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
+            return
+        q = shlex.quote
+        b = self._salida_base(p)
+        esperado = os.path.splitext(p)[0] + ".expect"
+        cmds = []
+        for tag, fl in (("base", []), ("opt", self.flags())):
+            o = f"{b}_{tag}"
+            cmds += [f'echo "### {tag} {" ".join(fl) or "P1"}"',
+                     f"{q(JAF)} {' '.join(fl)} -s --mem {q(p)} -o {q(o)}.bin",
+                     f"python3 {q(os.path.join(VLIW_DIR, 'tools', 'bin2mem.py'))} {q(o)}.bin {q(o)}.mem",
+                     f"vvp -n {q(vvp)} +PROG={q(o)}.mem +REGS={q(o)}.regs +DUMP={q(o)}.dump "
+                     f"+DUMPLO=65536 +DUMPHI=69631 +TIMEOUT=5000000 > {q(o)}.log; "
+                     f"grep -E '^(HALT|PERF|TIMEOUT|ERROR)' {q(o)}.log"]
+            if os.path.isfile(esperado):
+                cmds.append(f"python3 {q(os.path.join(VLIW_DIR, 'tools', 'check_dump.py'))} "
+                            f"--regs {q(o)}.regs --dump {q(o)}.dump --expect {q(esperado)} "
+                            f"--name {tag} --log {q(o)}.log")
+        self._log(f"$ simulación RTL ({self.cb_hw.currentText()}): P1 y {' '.join(self.flags()) or 'P1'}")
+        self._rtl_txt = ""
+        self.proc = QProcess(self)
+        self.proc.setWorkingDirectory(ROOT)
+        self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.proc.readyReadStandardOutput.connect(self._rtl_salida)
+        self.proc.finished.connect(self._rtl_fin)
+        self.sl.setText("simulando en el RTL…")
+        self.proc.start("bash", ["-c", "; ".join(cmds)])
+
+    def _rtl_salida(self):
+        t = bytes(self.proc.readAllStandardOutput()).decode(errors="replace")
+        self._rtl_txt += t
+        self.salida.appendPlainText(t.rstrip("\n"))
+
+    @staticmethod
+    def _perf(bloque):
+        d = {}
+        for clave, rx, conv in (("cycles", r"HALT cycles=(\d+)", int), ("ipc", r"ipc=([\d.]+)", float),
+                                ("l1", r"L1_hit=([\d.]+)%", float), ("l2", r"L2_hit=([\d.]+)%", float),
+                                ("stall_l1d", r"stall_l1d=(\d+)", int), ("dram", r"dram=(\d+)", int)):
+            m = re.search(rx, bloque)
+            if m:
+                d[clave] = conv(m.group(1))
+        d["pasa"] = "FAIL" not in bloque
+        return d
+
+    def _rtl_fin(self, *_):
+        partes = re.split(r"^### (base|opt).*$", self._rtl_txt, flags=re.M)
+        res = {"config": self.cb_hw.currentText()}
+        for k in range(1, len(partes) - 1, 2):
+            res[partes[k]] = self._perf(partes[k + 1])
+        self.rtl = res
+        self.v_met.cargar_rtl(res)
+        self.insp.setCurrentWidget(self.v_met)
+        b, o = res.get("base", {}), res.get("opt", {})
+        if b.get("cycles") and o.get("cycles"):
+            self.sl.setText(f"RTL {res['config']}: {b['cycles']} → {o['cycles']} ciclos "
+                            f"({b['cycles'] / o['cycles']:.2f}×) · IPC {o.get('ipc')} · "
+                            f"L1 {o.get('l1')}%" + ("" if b["pasa"] and o["pasa"] else " · FALLÓ check_dump"))
+        else:
+            self.sl.setText("la simulación RTL no terminó — ver SALIDA")
 
     def _act(self, menu, text, shortcut, slot):
         a = QAction(text, self)
@@ -1966,6 +2449,9 @@ class JafIde(QMainWindow):
             QMessageBox.critical(self, "jaf --ide", (r.stderr or raw)[:800])
             return
         self.ultimo = data
+        self._mostrar_diagnosticos(data)
+
+    def _mostrar_diagnosticos(self, data):
         self._fill(self.tbl_err, data.get("diagnostics", []),
                    lambda d: (d.get("severity", "Error"), d.get("msg"),
                               os.path.basename(d.get("file", "")), d.get("line"), d.get("col")))

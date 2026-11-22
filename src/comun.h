@@ -36,6 +36,10 @@ extern int traza_lexer;
 /* 1 si hubo un error lexico, incluido un comentario sin cerrar. */
 extern int lexer_hubo_error;
 
+/* 1 mientras otro modulo relee un archivo ya analizado (clones): sus errores
+ * lexicos ya estan en la lista del IDE y no se registran otra vez. */
+extern int lexer_silencio_ide;
+
 /* Prepara el lexer para leer otro FILE* (multi-archivo: clones, --ide).
  * Llama a yyrestart, vuelve a INITIAL y reinicia linea/columna. */
 void lexer_reiniciar(FILE *entrada);

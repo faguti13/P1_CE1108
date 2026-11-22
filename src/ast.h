@@ -49,9 +49,12 @@ typedef struct Nodo {
     int ty;              /* tipo de la expresion (lo llena la fase semantica) */
     struct Simbolo *sim; /* simbolo asociado (identificadores, funciones, declaraciones) */
     long val;            /* valor de un literal entero o booleano */
+    const char *archivo; /* fuente de origen (cambia en los modulos de #import) */
 } Nodo;
 
 extern Nodo *ast_raiz;
+/* Archivo que se esta parseando; cada nodo nuevo lo copia en `archivo`. */
+extern const char *ast_archivo;
 
 Nodo *nodo_nuevo(TipoNodo tipo, const char *texto);
 Nodo *nodo_en(TipoNodo tipo, const char *texto, int linea, int col);

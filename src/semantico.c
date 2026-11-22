@@ -52,11 +52,13 @@ static void error(const Nodo *n, int codigo, const char *fmt, ...)
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
     /*Imprime error junto el archivo y la posicion del nodo*/
-    fprintf(stderr, "{ERROR %d}:%s:%d:%d:\"%s\"\n", codigo, sem.archivo,
+    /*Los nodos de un modulo importado conservan su propio archivo*/
+    const char *arch = n && n->archivo ? n->archivo : sem.archivo;
+    fprintf(stderr, "{ERROR %d}:%s:%d:%d:\"%s\"\n", codigo, arch,
             n ? n->linea : 0, n ? n->col : 0, msg);
     sem.errores++;
 
-    ide_registrar_error(sem.archivo, n ? n->linea : 0, n ? n->col : 0, codigo, msg, "Error");
+    ide_registrar_error(arch, n ? n->linea : 0, n ? n->col : 0, codigo, msg, "Error");
 }
 
 /* Convierte un tipo interno del analizador semantico 
@@ -122,6 +124,7 @@ static Simbolo *nuevo_simbolo(const char *nombre, Clase cl, const Nodo *pos)
     s->nivel = nivel;
     s->linea = pos ? pos->linea : 0;
     s->col = pos ? pos->col : 0;
+    s->archivo = pos ? pos->archivo : NULL;
     /*Guarda la funcion que contiene el simbolo*/
     s->funcion = strdup(cur_func ? cur_func->nombre : "(global)");
     /*Registra el simbolo en la lista completa de simbolos*/
@@ -1022,6 +1025,7 @@ int sem_analizar(Nodo *raiz, const char *archivo)
     nivel = 0;
     marcas[0] = 0;
     n_tabla = 0;
+    n_funcs = 0;
     cur_func = NULL;
     /*Reserva espacio para temporales del codigo superior*/
     sem.marco_inicio = 4L * N_DERRAME;
@@ -1313,8 +1317,13 @@ void sem_imprimir_tabla(FILE *f)
             }
         }
         /*Imprime los datos del simbolo en una fila*/
-        fprintf(f, "%-18s %-8s %-12s %-5d %-14s %4d:%-4d %s\n", s->nombre, cl, tipo, s->nivel,
+        fprintf(f, "%-18s %-8s %-12s %-5d %-14s %4d:%-4d %s", s->nombre, cl, tipo, s->nivel,
                 s->funcion, s->linea, s->col, dir);
+        /*Simbolos que vienen de un modulo importado*/
+        if (s->archivo && sem.archivo && strcmp(s->archivo, sem.archivo) != 0) {
+            fprintf(f, "  [%s]", s->archivo);
+        }
+        fputc('\n', f);
     }
     /*Muestra espacio total reservado para variables globales.*/
     fprintf(f, "area global: %ld bytes\n", sem.bytes_globales);

@@ -1,20 +1,27 @@
 #ifndef IDE_H
 #define IDE_H
 
+#include <stdio.h>
+
 /*
- * Backend del prototipo de IDE (CE1108, Proyecto 2).
+ * Backend del IDE (CE1108, Proyecto 2).
  * La ventana esta en ide/jaf_ide.py; este modulo imprime JSON a stdout.
  *
- * TODO (equipo): rellenar diagnostics, fixes, completions y clones usando
- * lexer, parser y semantico. No implementar la UI aqui.
- *
- * Contrato JSON (un objeto por ejecucion de `jaf --ide a.oly b.oly ...`):
+ * Contrato JSON de `jaf --ide a.oly b.oly ...`:
  * {
- *   "diagnostics": [ {"file","line","col","code","msg","severity"} ],
+ *   "diagnostics": [ {"file","line","col","code","msg","severity"} ],   lexico 01, sintaxis 02, semantico 1x-3x
  *   "fixes":        [ {"file","line","col","kind":"insert"|"replace","text"} ],
- *   "completions":  [ {"label","kind","detail"} ],
- *   "clones":       [ {"type":1|2, "a":{"file","line","end"}, "b":{"file","line","end"}} ]
+ *   "completions":  [ {"label","kind","detail"} ],   palabra | intrinseca | variable | parametro | funcion
+ *   "clones":       [ {"type":1|2, "a":{"file","line","end"}, "b":{"file","line","end"}} ],
+ *   "files":        [ ... ]
  * }
+ *
+ * `jaf --ide-todo a.oly [-O2 --unroll=K ...]` agrega, en la misma invocacion:
+ *   "simbolos"  la tabla de -m (ver ide_simbolos_json)
+ *   "ast"       el arbol de --json (null si no parsea)
+ *   "ir"        {"antes": TAC recien generado, "despues": TAC tras las pasadas}
+ *   "paquetes"  {"base": [...], "opt": [...]}  bundles {"dir","etq","slots"[4],"lineas"[4]}
+ *   "metricas"  {"base": {...}, "opt": {..., "estad": {...}}}  generador de P1 vs tuberia
  */
 
 typedef struct {
@@ -35,5 +42,16 @@ void ide_registrar_error(const char *archivo, int linea, int col, int codigo, co
 void ide_limpiar_errores(void);
 
 void ide_emitir_json(char **archivos, int n);
+/* Los campos de ide_emitir_json sin las llaves externas. */
+void ide_emitir_campos(FILE *f, char **archivos, int n);
+/* Cadena JSON entre comillas. */
+void ide_json_str(FILE *f, const char *s);
+/* Arreglo JSON con sem.todos (--tabla-json). */
+void ide_simbolos_json(FILE *f);
+
+struct Nodo;
+struct OptCfg;
+/* --ide-todo: raiz es NULL si el archivo no parsea. Imprime el objeto completo. */
+int ide_todo(struct Nodo *raiz, const char *ruta, const struct OptCfg *oc);
 
 #endif

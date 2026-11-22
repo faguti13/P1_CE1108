@@ -4,7 +4,8 @@
 #   errores    deben fallar con el codigo indicado en la linea "$ ESPERA: ..."
 #   golden     el .asm generado coincide con tests/golden/*.asm
 #   xcheck     jaf -x y vliwasm.py producen el mismo binario que el compilador
-#   ejemplo    ejemplos/prueba.oly produce los 4 errores de tipo no soportado
+#   ide        --ide-todo trae todas las vistas y el codigo de cada error; clones I/II
+#   ejemplo    ejemplos/prueba.oly produce los 6 errores de tipo no soportado
 JAF="${JAF:-./build/jaf}"
 VLIW_DIR="${VLIW_DIR:-../vliw_grupo2}"
 T=build/tests; mkdir -p $T
@@ -52,6 +53,53 @@ if [ -d "$VLIW_DIR/programs" ]; then
     python3 $VLIW_DIR/tools/vliwasm.py $f --bin $T/hw_$n.b.bin >/dev/null 2>&1
     if cmp -s $T/hw_$n.a.bin $T/hw_$n.b.bin; then pass "xcheck programa $n"; else bad "xcheck programa $n" "difiere"; fi
   done
+fi
+
+# IDE: --ide-todo devuelve JSON con todas las vistas; cada error de tests/errores sale
+# como diagnostico con su codigo (los lexicos con codigo 1) y linea > 0.
+# Sin la tuberia optimizadora (ir.con_opt = false) solo se exige la parte de P1.
+for f in ejercicios/ej1_factorial.oly ejercicios/ej3_feistel.oly tests/aceptados/listas.oly tests/errores/*.oly; do
+  n=$(basename $f .oly)
+  esp=$(sed -n '1s/^\$ ESPERA: {\{0,1\}ERROR 0*\([0-9]*\)}.*/\1/p' $f)
+  case $f in tests/errores/l*) esp=1 ;; esac
+  $JAF --ide-todo "$f" >$T/$n.ide.json 2>/dev/null
+  r=$(python3 - "$T/$n.ide.json" "$esp" <<'EOF'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except ValueError as e:
+    print("JSON invalido:", e)
+    sys.exit()
+faltan = {"diagnostics", "fixes", "completions", "clones", "simbolos", "ast", "ir", "paquetes", "metricas"} - set(d)
+if faltan:
+    print("faltan", sorted(faltan))
+elif sys.argv[2]:
+    if not any(int(x["code"]) == int(sys.argv[2]) and x["line"] > 0 for x in d["diagnostics"]):
+        print("sin diagnostico", sys.argv[2], d["diagnostics"][:1])
+elif d["diagnostics"] or not d["metricas"]["base"]["ok"] or not d["paquetes"]["base"] or not d["simbolos"] \
+        or not d["ast"] or not d["ir"].get("p1"):
+    print("vistas vacias o errores inesperados")
+elif d["ir"].get("con_opt") and (not d["metricas"]["opt"]["ok"] or not d["paquetes"]["opt"]):
+    print("la parte optimizada quedo vacia")
+EOF
+)
+  if [ -z "$r" ]; then pass "ide $n"; else bad "ide $n" "$r"; fi
+done
+
+# IDE: clones Tipo I y II entre archivos, sin errores falsos de redeclaracion
+# (cada archivo se analiza por separado aunque repitan nombres de funcion).
+r=$($JAF --ide tests/clone_test/*.oly 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+tipos = {c['type'] for c in d['clones']}
+print('' if not d['diagnostics'] and tipos == {1, 2} else 'diagnosticos=%d tipos=%s' % (len(d['diagnostics']), sorted(tipos)))" 2>&1)
+if [ -z "$r" ]; then pass "ide clones Tipo I y II entre archivos"; else bad "ide clones" "$r"; fi
+
+# --tabla-json: la misma tabla de -m, en JSON
+if $JAF --tabla-json ejercicios/ej1_factorial.oly -o $T/tabla.bin 2>/dev/null | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin) else 1)" 2>/dev/null; then
+  pass "tabla de simbolos en JSON"
+else
+  bad "tabla-json" "no devuelve JSON con simbolos"
 fi
 
 n=$($JAF ejemplos/prueba.oly -o $T/prueba.bin 2>&1 | grep -c "ERROR 14")

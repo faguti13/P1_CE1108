@@ -1,5 +1,7 @@
 %{
 #include "tokens.h"
+#include "ast.h"
+#include "ide.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -71,10 +73,22 @@ static int devolver_texto(int token)
     return token;
 }
 
+/* Codigo 01 en el JSON del IDE; la salida de consola no cambia. */
+static void registrar_lexico(int linea, int col, const char *msg)
+{
+    if (!lexer_silencio_ide) {
+        ide_registrar_error(ast_archivo, linea, col, 1, msg, "Error");
+    }
+}
+
 static void error_lexico(const char *mensaje)
 {
+    char msg[160];
+
     fprintf(stderr, "error lexico:%d:%d: %s '%s'\n",
             yylineno, yycol_token, mensaje, yytext);
+    snprintf(msg, sizeof msg, "lexico: %s '%.40s'", mensaje, yytext);
+    registrar_lexico(yylineno, yycol_token, msg);
     lexer_hubo_error = 1;
 }
 %}
@@ -132,6 +146,8 @@ static void error_lexico(const char *mensaje)
                             "error lexico:%d:%d: comentario de varias lineas "
                             "abierto en la linea %d sin terminar\n",
                             yylineno, yycol, com_ml_linea);
+                    registrar_lexico(com_ml_linea, 1,
+                                     "lexico: comentario de varias lineas sin terminar");
                     lexer_hubo_error = 1;
                     BEGIN(INITIAL);
                     return devolver(TK_ERROR);

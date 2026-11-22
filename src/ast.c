@@ -6,6 +6,7 @@
 #include <string.h>
 
 Nodo *ast_raiz = NULL;
+const char *ast_archivo = NULL;
 
 Nodo *nodo_nuevo(TipoNodo tipo, const char *texto)
 {
@@ -16,6 +17,7 @@ Nodo *nodo_nuevo(TipoNodo tipo, const char *texto)
     nodo->tipo = tipo;
     nodo->linea = yylineno;
     nodo->col = yycol_token;
+    nodo->archivo = ast_archivo;
     if (texto) {
         nodo->texto = strdup(texto);
     }
