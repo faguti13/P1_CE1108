@@ -1,114 +1,348 @@
 #include "cfg.h"
+
 #include <stdlib.h>
 #include <string.h>
 
-/* Revisa si la instruccion es un salto, ya sea directo o condicional. */
-static int salto(TipoTac t) { return t == TAC_JMP || t == TAC_JZ; }
+// Hace: reserva memoria inicializada; recibe: n, t; genera: puntero o NULL segun corresponda.
+static void *xcalloc(size_t n, size_t t)
+{
+    void *p = calloc(n ? n : 1, t ? t : 1);
+    if (!p) {
+        fprintf(stderr, "sin memoria\n");
+        exit(1);
+    }
+    return p;
+}
 
-/* Revisa si una instruccion termina un bloque basico. */
-static int fin(TipoTac t) { return salto(t) || t == TAC_RET || t == TAC_HALT; }
-
-/* Busca una etiqueta en el TAC y devuelve el numero de instruccion donde aparece. */
-static int buscar(const CodigoTac *c, const char *etiqueta) {
+// Hace: encuentra el bloque de una etiqueta; recibe: g, etq; genera: valor o indicador calculado.
+static int bloque_de_etq(const Cfg *g, const char *etq)
+{
     int i;
-    for (i = 0; i < c->n; i++)
-        if (c->v[i].tipo == TAC_LABEL && !strcmp(c->v[i].res, etiqueta)) return i;
-    return -1; // Si no encontro la etiqueta, devuelve -1.
-}
-
-/* Agrega un bloque sucesor, sin repetirlo y con un maximo de dos sucesores. */
-static void agregar(Bloque *b, int id) {
-    int j;
-    if (id < 0) return; // No agrega bloques con un numero invalido.
-    for (j = 0; j < b->nsucc; j++) if (b->succ[j] == id) return; // Evita repetir sucesores.
-    if (b->nsucc < 2) b->succ[b->nsucc++] = id; // Guarda el sucesor y aumenta la cantidad.
-}
-
-/* Recibe el TAC y construye sus bloques basicos y las conexiones entre ellos.
-   Primero identifica los lideres, despues forma los bloques y al final sus sucesores. */
-void cfg_construir(const CodigoTac *c, GrafoFlujo *g) {
-    int *lider, *mapa, i, j, k, n = c->n;
-    /* lider[i] vale 1 si la instruccion i empieza un bloque.
-       mapa[i] indica a cual bloque pertenece la instruccion i. */
-    memset(g, 0, sizeof *g); // Inicializa el grafo vacio.
-    if (!n) return; // Si no hay TAC, no hay bloques que construir.
-    lider = calloc((size_t)n, sizeof *lider); // Empieza con todos los lideres en 0.
-    mapa = malloc((size_t)n * sizeof *mapa); // Reserva el arreglo para identificar cada bloque.
-
-    /* Paso 1: identificar los lideres segun las reglas de la teoria. */
-    lider[0] = 1; // La primera instruccion siempre es lider.
-    for (i = 0; i < n; i++) {
-        if (salto(c->v[i].tipo)) {
-            j = buscar(c, c->v[i].res); // Busca donde esta la etiqueta del salto.
-            if (j >= 0) lider[j] = 1; // El destino de un salto es lider.
-        }
-        if (fin(c->v[i].tipo) && i + 1 < n) lider[i+1] = 1; // La instruccion siguiente tambien es lider.
-        /* Una funcion o etiqueta de destino tambien puede empezar bloque. */
-        if (c->v[i].tipo == TAC_LABEL) lider[i] = 1;
-    }
-
-    /* Paso 2: contar los lideres y reservar espacio para los bloques. */
-    for (i = 0; i < n; i++) if (lider[i]) g->n++; // Cada lider inicia un bloque nuevo.
-    g->v = calloc((size_t)g->n, sizeof *g->v);
-    k = -1; // Todavia no se ha creado ningun bloque.
-    for (i = 0; i < n; i++) {
-        if (lider[i]) {
-            k++; // Empieza un bloque nuevo.
-            g->v[k].inicio = i; // Guarda su primera instruccion.
-            if (k) g->v[k-1].fin = i - 1; // El bloque anterior termina antes de este lider.
-        }
-        mapa[i] = k; // Guarda a cual bloque pertenece esta instruccion.
-    }
-    g->v[k].fin = n - 1; // El ultimo bloque termina en la ultima instruccion TAC.
-
-    /* Paso 3: identificar a que bloques se puede pasar desde cada bloque.
-       Solo se revisa su ultima instruccion, porque dentro del bloque no hay saltos. */
     for (i = 0; i < g->n; i++) {
-        Bloque *b = &g->v[i]; // Bloque que estamos analizando.
-        const Tac *t = &c->v[b->fin]; // Ultima instruccion de ese bloque.
-        if (salto(t->tipo)) {
-            j = buscar(c, t->res); // Busca el destino del salto en el TAC.
-            if (j >= 0) agregar(b, mapa[j]); // Convierte esa instruccion en numero de bloque.
-        }
-        /* Si no es un salto directo, retorno o terminar, tambien puede seguir
-           al bloque que aparece inmediatamente despues. */
-        if (t->tipo != TAC_JMP && t->tipo != TAC_RET && t->tipo != TAC_HALT
-            && i + 1 < g->n)
-            agregar(b, i+1);
-    }
-    free(lider); free(mapa); // Ya no se necesitan los arreglos auxiliares.
-}
-
-/* Imprime cada bloque, las instrucciones TAC que contiene y sus sucesores. */
-void cfg_imprimir(const CodigoTac *c, const GrafoFlujo *g, FILE *out) {
-    int i, j;
-    fprintf(out, "Bloques basicos: %d\n", g->n);
-    for (i = 0; i < g->n; i++) {
-        const Bloque *b = &g->v[i]; // Obtiene el bloque actual.
-        fprintf(out, "\nB%d (instrucciones %d..%d):\n", i, b->inicio, b->fin);
-        for (j = b->inicio; j <= b->fin; j++) { // Recorre las instrucciones del bloque.
-            CodigoTac uno = { (Tac *)&c->v[j], 1, 1 }; // TAC temporal con una sola instruccion.
-            fprintf(out, "    [%d] ", j); // Imprime el indice real de la instruccion.
-            /* Se reutiliza cfg_imprimir de TAC sin duplicar la logica. */
-            { FILE *tmp = tmpfile();
-              if (tmp) {
-                  int ch;
-                  tac_imprimir(&uno, tmp); rewind(tmp); // Escribe y vuelve al inicio del archivo temporal.
-                  /*cfg_imprimir usa indice 0 cuando se le pasa una sola
-                     instruccion; quitamos ese prefijo para no confundirlo
-                     con el indice real del programa. */
-                  fgetc(tmp); fgetc(tmp); fgetc(tmp); fgetc(tmp); fgetc(tmp);
-                  while ((ch = fgetc(tmp)) != EOF) fputc(ch, out); // Imprime el resto de la instruccion.
-                  fclose(tmp); // Cierra el archivo temporal.
-              }
+        const Tac *t = &g->fn->v[g->b[i].ini];
+        int k;
+        /* un bloque puede empezar con varias etiquetas seguidas */
+        for (k = g->b[i].ini; k < g->b[i].fin && g->fn->v[k].op == TAC_LABEL; k++) {
+            if (!strcmp(g->fn->v[k].etq, etq)) {
+                return i;
             }
         }
-        fprintf(out, "  sucesores:");
-        if (!b->nsucc) fprintf(out, " ninguno"); // El bloque no tiene sucesores.
-        for (j = 0; j < b->nsucc; j++) fprintf(out, " B%d", b->succ[j]); // Imprime cada bloque sucesor.
-        fputc('\n', out);
+        (void)t;
     }
+    return -1;
 }
 
-/* Libera el arreglo de bloques y deja el grafo vacio. */
-void cfg_liberar(GrafoFlujo *g) { free(g->v); memset(g, 0, sizeof *g); }
+// Hace: agrega un predecesor sin duplicarlo; recibe: b, p; genera: efectos sobre estructuras o salida.
+static void agregar_pred(Bloque *b, int p)
+{
+    b->pred = realloc(b->pred, (size_t)(b->npred + 1) * sizeof(int));
+    b->pred[b->npred++] = p;
+}
+
+// Hace: consulta el bloque de una instruccion; recibe: g, i; genera: estado o cantidad calculada.
+int cfg_bloque_de(const Cfg *g, int i)
+{
+    int lo = 0, hi = g->n - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (i < g->b[m].ini) {
+            hi = m - 1;
+        } else if (i >= g->b[m].fin) {
+            lo = m + 1;
+        } else {
+            return m;
+        }
+    }
+    return -1;
+}
+
+// Hace: identifica lazos en el grafo; recibe: g; genera: efectos sobre estructuras o salida.
+static void lazos(Cfg *g)
+{
+    int n = g->n, w = (n + 63) / 64;
+    uint64_t *dom = xcalloc((size_t)n * (size_t)w, sizeof(uint64_t));
+    uint64_t *tmp = xcalloc((size_t)w, sizeof(uint64_t));
+    int *pila = xcalloc((size_t)n, sizeof(int));
+    char *en = xcalloc((size_t)n, 1);
+    int i, k, cambio;
+
+    /* alcanzables desde la entrada */
+    if (n) {
+        int sp = 0;
+        pila[sp++] = 0;
+        g->b[0].alcanzable = 1;
+        while (sp) {
+            int u = pila[--sp];
+            for (k = 0; k < g->b[u].nsucc; k++) {
+                int s = g->b[u].succ[k];
+                if (!g->b[s].alcanzable) {
+                    g->b[s].alcanzable = 1;
+                    pila[sp++] = s;
+                }
+            }
+        }
+    }
+    /* dominadores: dom[0] = {0}; dom[b] = {b} U interseccion de dom[pred] */
+    for (i = 0; i < n; i++) {
+        uint64_t *d = dom + (size_t)i * w;
+        if (i == 0) {
+            bs_pon(d, 0);
+        } else {
+            memset(d, 0xff, (size_t)w * sizeof(uint64_t));
+        }
+    }
+    do {
+        cambio = 0;
+        for (i = 1; i < n; i++) {
+            uint64_t *d = dom + (size_t)i * w;
+            int primero = 1;
+            if (!g->b[i].alcanzable) {
+                continue;
+            }
+            for (k = 0; k < g->b[i].npred; k++) {
+                int p = g->b[i].pred[k];
+                int j;
+                if (!g->b[p].alcanzable) {
+                    continue;
+                }
+                for (j = 0; j < w; j++) {
+                    tmp[j] = primero ? dom[(size_t)p * w + j] : (tmp[j] & dom[(size_t)p * w + j]);
+                }
+                primero = 0;
+            }
+            if (primero) {
+                memset(tmp, 0, (size_t)w * sizeof(uint64_t));
+            }
+            bs_pon(tmp, i);
+            if (memcmp(tmp, d, (size_t)w * sizeof(uint64_t))) {
+                memcpy(d, tmp, (size_t)w * sizeof(uint64_t));
+                cambio = 1;
+            }
+        }
+    } while (cambio);
+
+    /* arcos de retorno y lazo natural de cada uno */
+    for (i = 0; i < n; i++) {
+        if (!g->b[i].alcanzable) {
+            continue;
+        }
+        for (k = 0; k < g->b[i].nsucc; k++) {
+            int h = g->b[i].succ[k];
+            int sp = 0, cuenta = 1, j;
+            if (!bs_tiene(dom + (size_t)i * w, h)) {
+                continue;
+            }
+            memset(en, 0, (size_t)n);
+            en[h] = 1;
+            if (!en[i]) {
+                en[i] = 1;
+                cuenta++;
+                pila[sp++] = i;
+            }
+            while (sp) {
+                int u = pila[--sp];
+                for (j = 0; j < g->b[u].npred; j++) {
+                    int p = g->b[u].pred[j];
+                    if (!en[p] && g->b[p].alcanzable) {
+                        en[p] = 1;
+                        cuenta++;
+                        pila[sp++] = p;
+                    }
+                }
+            }
+            for (j = 0; j < n; j++) {
+                g->b[j].prof += en[j];
+            }
+            g->lazos = realloc(g->lazos, (size_t)(g->nlazos + 1) * sizeof(Lazo));
+            g->lazos[g->nlazos].cab = h;
+            g->lazos[g->nlazos].cola = i;
+            g->lazos[g->nlazos].nbloques = cuenta;
+            g->nlazos++;
+        }
+    }
+    free(dom);
+    free(tmp);
+    free(pila);
+    free(en);
+}
+
+// Hace: construye bloques y aristas del flujo; recibe: g, fn; genera: efectos sobre estructuras o salida.
+void cfg_construir(Cfg *g, TacFunc *fn)
+{
+    int i, ini;
+    memset(g, 0, sizeof *g);
+    g->fn = fn;
+
+    /* lideres */
+    ini = 0;
+    for (i = 0; i <= fn->n; i++) {
+        int corta = i == fn->n;
+        if (!corta && i > ini) {
+            corta = fn->v[i].op == TAC_LABEL && fn->v[i - 1].op != TAC_LABEL;
+            corta = corta || tac_termina_bloque(&fn->v[i - 1]);
+        }
+        if (corta && i > ini) {
+            g->b = realloc(g->b, (size_t)(g->n + 1) * sizeof(Bloque));
+            memset(&g->b[g->n], 0, sizeof(Bloque));
+            g->b[g->n].ini = ini;
+            g->b[g->n].fin = i;
+            g->n++;
+            ini = i;
+        }
+    }
+    /* sucesores */
+    for (i = 0; i < g->n; i++) {
+        Tac *t = &fn->v[g->b[i].fin - 1];
+        Bloque *b = &g->b[i];
+        if (t->op == TAC_JMP) {
+            int s = bloque_de_etq(g, t->etq);
+            if (s >= 0) {
+                b->succ[b->nsucc++] = s;
+            }
+        } else if (t->op == TAC_BCOND || t->op == TAC_JZ || t->op == TAC_JNZ) {
+            int s = bloque_de_etq(g, t->etq);
+            if (i + 1 < g->n) {
+                b->succ[b->nsucc++] = i + 1;
+            }
+            if (s >= 0 && s != i + 1) {
+                b->succ[b->nsucc++] = s;
+            }
+        } else if (t->op != TAC_RET && t->op != TAC_HALT) {
+            if (i + 1 < g->n) {
+                b->succ[b->nsucc++] = i + 1;
+            }
+        }
+    }
+    for (i = 0; i < g->n; i++) {
+        int k;
+        for (k = 0; k < g->b[i].nsucc; k++) {
+            agregar_pred(&g->b[g->b[i].succ[k]], i);
+        }
+    }
+    lazos(g);
+}
+
+// Hace: calcula conjuntos de variables vivas; recibe: g; genera: efectos sobre estructuras o salida.
+void cfg_vivacidad(Cfg *g)
+{
+    TacFunc *fn = g->fn;
+    int w = (fn->nv + 63) / 64;
+    int i, k, j, cambio;
+    uint64_t *nuevo;
+
+    g->palabras = w;
+    for (i = 0; i < g->n; i++) {
+        Bloque *b = &g->b[i];
+        free(b->def); free(b->use); free(b->in); free(b->out);
+        b->def = xcalloc((size_t)w, sizeof(uint64_t));
+        b->use = xcalloc((size_t)w, sizeof(uint64_t));
+        b->in = xcalloc((size_t)w, sizeof(uint64_t));
+        b->out = xcalloc((size_t)w, sizeof(uint64_t));
+        for (k = b->ini; k < b->fin; k++) {
+            int lee[4], esc[4], nl, ne;
+            nl = tac_lee(&fn->v[k], lee);
+            ne = tac_escribe(&fn->v[k], esc);
+            for (j = 0; j < nl; j++) {
+                if (!bs_tiene(b->def, lee[j])) {
+                    bs_pon(b->use, lee[j]);
+                }
+            }
+            for (j = 0; j < ne; j++) {
+                bs_pon(b->def, esc[j]);
+            }
+        }
+    }
+    nuevo = xcalloc((size_t)w, sizeof(uint64_t));
+    g->iter_vivos = 0;
+    do {
+        cambio = 0;
+        g->iter_vivos++;
+        for (i = g->n - 1; i >= 0; i--) {
+            Bloque *b = &g->b[i];
+            memset(nuevo, 0, (size_t)w * sizeof(uint64_t));
+            for (k = 0; k < b->nsucc; k++) {
+                uint64_t *s = g->b[b->succ[k]].in;
+                for (j = 0; j < w; j++) {
+                    nuevo[j] |= s[j];
+                }
+            }
+            memcpy(b->out, nuevo, (size_t)w * sizeof(uint64_t));
+            for (j = 0; j < w; j++) {
+                uint64_t x = b->use[j] | (b->out[j] & ~b->def[j]);
+                if (x != b->in[j]) {
+                    b->in[j] = x;
+                    cambio = 1;
+                }
+            }
+        }
+    } while (cambio);
+    free(nuevo);
+}
+
+// Hace: libera las estructuras del grafo; recibe: g; genera: efectos sobre estructuras o salida.
+void cfg_liberar(Cfg *g)
+{
+    int i;
+    for (i = 0; i < g->n; i++) {
+        free(g->b[i].pred);
+        free(g->b[i].def);
+        free(g->b[i].use);
+        free(g->b[i].in);
+        free(g->b[i].out);
+    }
+    free(g->b);
+    free(g->lazos);
+    memset(g, 0, sizeof *g);
+}
+
+// Hace: imprime un conjunto de virtuales; recibe: g, s, f; genera: efectos sobre estructuras o salida.
+static void conjunto(const Cfg *g, const uint64_t *s, FILE *f)
+{
+    int v, primero = 1;
+    char buf[64];
+    fputc('{', f);
+    if (s) {
+        for (v = 0; v < g->fn->nv; v++) {
+            if (bs_tiene(s, v)) {
+                tac_vtexto(g->fn, v, buf, sizeof buf);
+                fprintf(f, "%s%s", primero ? "" : ", ", buf);
+                primero = 0;
+            }
+        }
+    }
+    fputc('}', f);
+}
+
+// Hace: imprime bloques y relaciones del CFG; recibe: g, f; genera: efectos sobre estructuras o salida.
+void cfg_imprimir(const Cfg *g, FILE *f)
+{
+    int i, k;
+    char buf[256];
+
+    fprintf(f, "cfg %s: %d bloques, %d lazos, vivacidad en %d iteraciones\n", g->fn->nombre, g->n, g->nlazos,
+            g->iter_vivos);
+    for (i = 0; i < g->nlazos; i++) {
+        fprintf(f, "  lazo: B%d -> B%d (%d bloques)\n", g->lazos[i].cola, g->lazos[i].cab, g->lazos[i].nbloques);
+    }
+    for (i = 0; i < g->n; i++) {
+        const Bloque *b = &g->b[i];
+        fprintf(f, "B%d%s prof=%d  pred:", i, b->alcanzable ? "" : " (inalcanzable)", b->prof);
+        for (k = 0; k < b->npred; k++) {
+            fprintf(f, " B%d", b->pred[k]);
+        }
+        fprintf(f, "  succ:");
+        for (k = 0; k < b->nsucc; k++) {
+            fprintf(f, " B%d", b->succ[k]);
+        }
+        fprintf(f, "\n  in  = ");
+        conjunto(g, b->in, f);
+        fprintf(f, "\n");
+        for (k = b->ini; k < b->fin; k++) {
+            tac_texto(g->fn, &g->fn->v[k], buf, sizeof buf);
+            fprintf(f, g->fn->v[k].op == TAC_LABEL ? "  %s\n" : "      %s\n", buf);
+        }
+        fprintf(f, "  out = ");
+        conjunto(g, b->out, f);
+        fprintf(f, "\n");
+    }
+}
