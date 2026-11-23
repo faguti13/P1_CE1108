@@ -5,44 +5,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-```c
 /*
- * Desenrolla bucles `para` sobre el AST ya analizado semanticamente (los nodos
- * clonados siguen apuntando a los mismos simbolos).
+ * --unroll=K | --unroll=auto, sobre el AST ya analizado (los clones comparten
+ * los simbolos). Solo lazos `para` canonicos:
+ *     para (i = e0; i < N | i <= N; i += c | i = i + c) cuerpo
+ * con c constante > 0, N constante o variable escalar que el cuerpo no escribe
+ * (si N o i son globales, el cuerpo no puede llamar funciones) y un cuerpo que
+ * no escribe i.
  *
- * Solo toca bucles con esta forma:
- *   para (i = e0; i < N  o  i <= N; i += c  o  i = i + c) cuerpo
- * siempre que:
- *   - el paso `c` sea una constante positiva,
- *   - el limite `N` sea constante o una variable entera escalar que el cuerpo no
- *     modifique (y si `N` o `i` son globales, el cuerpo no puede llamar a
- *     ninguna funcion),
- *   - el cuerpo no escriba sobre `i` ni sobre `N` (tampoco via intrinsecas de
- *     Feistel cuando aplique).
- *
- * Hay dos modos para elegir cuantas copias hacer:
- *
- *   - Modo `auto` (k < 0): el compilador decide solo segun el tamano del
- *     cuerpo para no inflar el codigo ni complicarse:
- *       * si llama a funciones de usuario o tiene mas de 120 nodos: no hace nada;
- *       * si tiene hasta 48 nodos: usa factor 4;
- *       * si tiene entre 49 y 120 nodos: usa factor 2;
- *       * si sabe cuantas vueltas da en total, son pocas (hasta 8) y el cuerpo
- *         no es grande (<= 48 nodos): aplana el bucle (pone todas las vueltas
- *         seguidas y quita el bucle).
- *
- *   - Modo fijo `K` (k >= 2): usuario le indica exactamente cuantas copias hacer por
- *     vuelta:
- *       * si se sabe cuantas vueltas da y son `<= K`: aplana el bucle y pone
- *         esas copias seguidas sin dejar bucle;
- *       * si da mas vueltas (o no se saben): deja un bucle principal que hace
- *         `K` copias por vuelta (con la guarda ajustada para que quepan `K`
- *         pasos completos) y agrega un bucle epilogo al final para las vueltas
- *         que sobren (salvo que ya se sepa que el total es multiplo exacto de
- *         `K`, en cuyo caso omite el epilogo).
+ * auto: no desenrolla cuerpos con llamadas de usuario ni cuerpos grandes; K = 4
+ * para cuerpos chicos y K = 2 para medianos.
+ * Con N conocido y pocas vueltas (auto: <= 8 y cuerpo chico; K: <= K) el lazo se aplana:
+ *     init; cuerpo; paso; cuerpo; paso; ...
+ * Si no, lazo principal de K copias con guarda i + (K-1)*c < N y un lazo
+ * epilogo con la condicion original para las vueltas que sobran:
+ *     init;
+ *     para (; i + (K-1)*c < N; paso) { cuerpo; paso; ... cuerpo }
+ *     para (; i < N; paso) cuerpo
  */
-
-```
 
 #define K_AUTO 4
 #define PLANO_AUTO 8

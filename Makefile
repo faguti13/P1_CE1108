@@ -39,8 +39,11 @@ VLIW_DIR ?= ../vliw_grupo2
 # planificador, emisor del .asm y ensamblador propio (-x: de .asm a .bin).
 OBJS = build/main.o build/lexer.o build/parser.o build/ast.o build/tokens.o \
     build/isa.o build/semantico.o build/codegen.o build/planificador.o \
-    build/emisor.o build/ensamblador.o build/ide.o build/clones.o build/fixes.o build/ir_tac.o build/cfg.o \
-    build/ide_todo.o build/fixes.o 
+    build/emisor.o build/ensamblador.o build/ide.o build/ide_todo.o \
+    build/clones.o build/fixes.o build/linker.o build/ir_tac.o \
+    build/cfg.o build/opt.o build/opt_unroll.o build/opt_dce.o \
+    build/opt_reorder.o build/opt_regalloc.o build/ir_lower.o \
+    build/sim_ciclos.o
 
 # Fuente y carpeta de las vistas para el avance (make tabla, json, asm, bin, paquetes, vista).
 SRC   ?= ejercicios/ej1_factorial.oly

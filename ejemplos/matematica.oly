@@ -1,0 +1,41 @@
+$ matematica.oly - Modulo de funciones enteras que importan ejemplos/prueba.oly y las
+$ pruebas de enlazado (#import "matematica";). Solo define funciones: no tiene main
+$ ni codigo de nivel superior.
+
+ent def mat_abs(ent x) {
+    si (x < 0) {
+        retorno (0 - x);
+    }
+    retorno (x);
+}
+
+ent def mat_max(ent a, ent b) {
+    si (a > b) {
+        retorno (a);
+    }
+    retorno (b);
+}
+
+ent def mat_min(ent a, ent b) {
+    si (a < b) {
+        retorno (a);
+    }
+    retorno (b);
+}
+
+ent def mat_potencia(ent base, ent exp) {
+    ent r = 1;
+    para (ent i = 0; i < exp; i += 1) {
+        r = r * base;
+    }
+    retorno (r);
+}
+
+ent def mat_mcd(ent a, ent b) {
+    mientras (b != 0) {
+        ent t = a % b;
+        a = b;
+        b = t;
+    }
+    retorno (a);
+}

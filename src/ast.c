@@ -428,3 +428,27 @@ void nodo_liberar(Nodo *nodo)
     nodo->texto = NULL;
     free(nodo);
 }
+
+/* Hace: clona un subárbol AST; recibe: nodo y con_hermanos; genera: una copia que conserva las referencias semánticas. */
+Nodo *nodo_clonar(const Nodo *nodo, int con_hermanos)
+{
+    Nodo *c;
+
+    if (!nodo) {
+        return NULL;
+    }
+
+    c = malloc(sizeof *c);
+
+    if (!c) {
+        return NULL;
+    }
+
+    *c = *nodo;
+
+    c->texto = nodo->texto ? strdup(nodo->texto) : NULL;
+    c->hijo = nodo_clonar(nodo->hijo, 1);
+    c->sig = con_hermanos ? nodo_clonar(nodo->sig, 1) : NULL;
+
+    return c;
+}

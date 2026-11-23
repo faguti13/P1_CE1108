@@ -50,6 +50,7 @@ typedef struct Simbolo {
     long zona_derrame;      /*Offset (positivo hacia abajo) donde empieza la zona de derrame */
     Intr intr;              /*Identifica la funcion intrinseca asociada al simbolo si corresponde*/
     Nodo *def;              /*Nodo del AST donde se encuentra la definicion del simbolo*/
+    int tac_v;
 } Simbolo;
 
 /* Cantidad de registros temporales que pueden derramarse al llamar una funcion

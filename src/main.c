@@ -7,16 +7,17 @@
  * Con -x la entrada es un .asm: se ensambla y se salta directo a la resolución
  *   y la codificación.
  */
-#include "ir_tac.h"
-#include "cfg.h"
 #include "ast.h"
 #include "codegen.h"
 #include "emisor.h"
 #include "ensamblador.h"
 #include "ide.h"
 #include "isa.h"
+#include "linker.h"
+#include "opt.h"
 #include "planificador.h"
 #include "semantico.h"
+#include "sim_ciclos.h"
 #include "tokens.h"
 #include "ide.h"
 
@@ -55,13 +56,29 @@ static void uso(const char *programa)
             "  --arbol      imprime el arbol sintactico y termina\n"
             "  --json       imprime el arbol en JSON y termina (jsoncrack.com)\n"
             "  --ide        JSON para el IDE: diagnosticos, fixes, sugerencias y clones (varios .oly)\n"
-            "  --ide-todo   JSON del IDE + simbolos, AST, IR, bundles y metricas (un .oly)\n"
+            "  --ide-todo   JSON del IDE + simbolos, AST, TAC, bundles y metricas (un .oly;\n"
+            "               acepta las opciones de optimizacion)\n"
             "  --tabla-json imprime la tabla de simbolos en JSON\n"
             "  --tokens     igual que -t\n"
             "  -h           esta ayuda\n"
             "\n"
-            "  Alias: ~gc <archivo> (-o)  ~as (-t)  ~fp (-v)  ~ay (-h)\n"
-            "         ~bd y ~c se aceptan pero no estan soportados en esta version\n",
+            "  Optimizacion (Proyecto II; sin estas opciones se usa el generador de P1):\n"
+            "  -O0          tuberia TAC sin optimizar (virtuales en memoria)\n"
+            "  -O1          -O0 + --spill --dce\n"
+            "  -O2          -O1 + --unroll=auto --rename --reorder\n"
+            "  --unroll=K   desenrolla lazos para canonicos K veces (K>=2 o auto)\n"
+            "  --dce        elimina codigo muerto e inalcanzable\n"
+            "  --rename     renombra definiciones dentro del bloque (quita WAW/WAR)\n"
+            "  --reorder    reordena cada bloque por altura del DAG\n"
+            "  --spill      asigna registros r8..r23 y derrama al marco (fp)\n"
+            "  --max-regs=N registros asignables con --spill (1..16, por defecto 16)\n"
+            "  --p1         fuerza el generador de P1 aunque haya opciones de optimizacion\n"
+            "  -i, --ir     imprime el TAC final;  --ir-raw: el TAC sin optimizar\n"
+            "  --cfg        imprime bloques basicos, lazos y vivacidad\n"
+            "  --estad      imprime las estadisticas de optimizacion en JSON (stdout)\n"
+            "  --sim-ciclos ejecuta el binario en el simulador rapido: ciclos, IPC y\n"
+            "               una estimacion de L1+L2 (la cifra exacta es la de tb_top)\n"
+            "\n",
             programa);
 }
 
@@ -251,15 +268,80 @@ int main(int argc, char **argv)
     const char *salida = NULL;
     int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
     int opt_x = 0, opt_mem = 0, opt_ide = 0, verboso = 0;
-    int opt_ir = 0, opt_cfg = 0;
     char *salida_def = NULL;
     char *asm_ruta = NULL;
     char *rutas[32];
     int n_rutas = 0;
     int i, estado = 0;
+    OptCfg oc;
+    int opt_p1 = 0, opt_estad = 0, opt_sim = 0;
 
+    memset(&oc, 0, sizeof oc);
+    oc.max_regs = 16;
     for (i = 1; i < argc; i++) {
         const char *a = argv[i];
+        if (!strcmp(a, "-O0") || !strcmp(a, "-O1") || !strcmp(a, "-O2")) {
+            oc.activa = 1;
+            if (a[2] >= '1') {
+                oc.spill = oc.dce = 1;
+            }
+            if (a[2] >= '2') {
+                oc.unroll = -1;
+                oc.rename = oc.reorder = 1;
+            }
+            continue;
+        } else if (!strncmp(a, "--unroll=", 9)) {
+            oc.activa = 1;
+            oc.unroll = !strcmp(a + 9, "auto") ? -1 : atoi(a + 9);
+            if (oc.unroll == 0 || oc.unroll == 1) {
+                oc.unroll = 0;
+            } else if (oc.unroll < -1 || oc.unroll > 64) {
+                fprintf(stderr, "--unroll espera K entre 2 y 64 o auto\n");
+                return 2;
+            }
+            continue;
+        } else if (!strcmp(a, "--unroll")) {
+            oc.activa = 1;
+            oc.unroll = -1;
+            continue;
+        } else if (!strcmp(a, "--dce")) {
+            oc.activa = oc.dce = 1;
+            continue;
+        } else if (!strcmp(a, "--rename")) {
+            oc.activa = oc.rename = 1;
+            continue;
+        } else if (!strcmp(a, "--reorder")) {
+            oc.activa = oc.reorder = 1;
+            continue;
+        } else if (!strcmp(a, "--spill")) {
+            oc.activa = oc.spill = 1;
+            continue;
+        } else if (!strncmp(a, "--max-regs=", 11)) {
+            oc.max_regs = atoi(a + 11);
+            if (oc.max_regs < 1 || oc.max_regs > 16) {
+                fprintf(stderr, "--max-regs espera un valor entre 1 y 16\n");
+                return 2;
+            }
+            continue;
+        } else if (!strcmp(a, "-i") || !strcmp(a, "--ir")) {
+            oc.activa = oc.ver_ir = 1;
+            continue;
+        } else if (!strcmp(a, "--ir-raw")) {
+            oc.activa = oc.ver_ir_crudo = 1;
+            continue;
+        } else if (!strcmp(a, "--cfg")) {
+            oc.activa = oc.ver_cfg = 1;
+            continue;
+        } else if (!strcmp(a, "--p1")) {
+            opt_p1 = 1;
+            continue;
+        } else if (!strcmp(a, "--estad")) {
+            opt_estad = 1;
+            continue;
+        } else if (!strcmp(a, "--sim-ciclos")) {
+            opt_sim = 1;
+            continue;
+        }
         if (!strcmp(a, "-h") || !strcmp(a, "~ay") || !strcmp(a, "--help")) {
             uso(argv[0]);
             return 0;
@@ -274,10 +356,6 @@ int main(int argc, char **argv)
             opt_json = 1;
         } else if (!strcmp(a, "--ide")) {
             opt_ide = 1;
-        } else if (!strcmp(a, "--ir") || !strcmp(a, "-i")) {
-            opt_ir = 1;
-        } else if (!strcmp(a, "--cfg")) {
-            opt_cfg = 1;
         } else if (!strcmp(a, "--ide-todo")) {
             opt_ide = 2;
         } else if (!strcmp(a, "--tabla-json")) {
@@ -317,7 +395,7 @@ int main(int argc, char **argv)
     if (opt_ide == 2) {
         Nodo *raiz = NULL;
         if (n_rutas != 1) {
-            fprintf(stderr, "uso: %s --ide-todo <a.oly>\n", argv[0]);
+            fprintf(stderr, "uso: %s --ide-todo <a.oly> [opciones de optimizacion]\n", argv[0]);
             return 2;
         }
         archivo_actual = rutas[0];
@@ -325,13 +403,13 @@ int main(int argc, char **argv)
             estado = yyparse();
             fclose(yyin);
             yyin = NULL;
-            if (estado == 0 && !lexer_hubo_error && !hubo_sintaxis && ast_raiz) {
+            if (estado == 0 && !lexer_hubo_error && !hubo_sintaxis && ast_raiz
+                && enlazar(ast_raiz, rutas[0], 0) == 0) {
                 raiz = ast_raiz;
             }
         }
-        /* Sin tuberia optimizadora en esta version: solo la parte de P1.
-           Cuando entren -O0/-O1/-O2 (Integrante 4) se pasa aqui &oc. */
-        return ide_todo(raiz, rutas[0], NULL);
+        oc.activa = 1;
+        return ide_todo(raiz, rutas[0], &oc);
     }
     if (opt_ide) {
         if (n_rutas < 1) {
@@ -413,6 +491,10 @@ int main(int argc, char **argv)
     if (estado != 0 || lexer_hubo_error || hubo_sintaxis || !ast_raiz) {
         return 1;
     }
+    /* ---- enlazado de #import (antes del semantico) ---- */
+    if (enlazar(ast_raiz, ruta, verboso) > 0) {
+        return 1;
+    }
     if (opt_arbol) {
         printf("Archivo: %s\n", ruta);
         nodo_imprimir(ast_raiz, 0);
@@ -438,33 +520,28 @@ int main(int argc, char **argv)
         imprimir_tabla(opt_tabla);
     }
 
-    /* TAC y bloques basicos se generan desde el AST, antes del codigo VLIW.
-       POr ahora se conserva el generador de P1 para no cambiar el binario. */
-    if (opt_ir || opt_cfg) {
-        CodigoTac tac;
-        tac_generar(ast_raiz, &tac);
-        if (opt_ir) {
-            printf("=== Codigo intermedio (TAC) ===\n");
-            tac_imprimir(&tac, stdout);
-        }
-        if (opt_cfg) {
-            GrafoFlujo grafo;
-            cfg_construir(&tac, &grafo);
-            printf("=== Bloques basicos y CFG ===\n");
-            cfg_imprimir(&tac, &grafo, stdout);
-            cfg_liberar(&grafo);
-        }
-        tac_liberar(&tac);
-    }
-
     /* ---- fases 4 a 6: código, planificación, codificación ---- */
     {
         IR ir;
         Programa p;
         EstadPlan est;
+        EstadOpt eo;
+        EstadSim es;
 
         memset(&ir, 0, sizeof ir);
-        if (gen_programa(ast_raiz, &ir, ruta) > 0) {
+        memset(&eo, 0, sizeof eo);
+        if (oc.activa && !opt_p1) {
+            if (verboso) {
+                fprintf(stderr, "[jaf] tuberia TAC:%s%s%s%s%s\n", oc.unroll ? " unroll" : "", oc.dce ? " dce" : "",
+                        oc.rename ? " rename" : "", oc.reorder ? " reorder" : "", oc.spill ? " spill" : " (memoria)");
+            }
+            if (opt_compilar(ast_raiz, ruta, &oc, &ir, &eo, NULL) > 0) {
+                return 1;
+            }
+            if (verboso) {
+                opt_imprimir_estad(&eo, stderr);
+            }
+        } else if (gen_programa(ast_raiz, &ir, ruta) > 0) {
             return 1;
         }
         if (verboso) {
@@ -477,6 +554,22 @@ int main(int argc, char **argv)
                     est.bundles ? 100.0 * (double)est.slots_usados / (4.0 * (double)est.bundles) : 0.0);
         }
         estado = generar_salidas(&p, salida, opt_mem, opt_paquetes, verboso, asm_ruta, ruta);
+        if (estado == 0 && opt_sim) {
+            sim_ciclos(&p, 50000000L, &es, NULL);
+            if (!opt_estad) {
+                sim_imprimir(&es, stdout);
+            }
+        }
+        if (estado == 0 && opt_estad) {
+            printf("{\"archivo\": \"%s\", \"bundles\": %ld, \"instrucciones\": %ld, \"slots_usados\": %ld, \"opt\": ", ruta,
+                   est.bundles, est.instrucciones, est.slots_usados);
+            opt_estad_json(&eo, stdout);
+            if (opt_sim) {
+                printf(", \"sim\": ");
+                sim_json(&es, stdout);
+            }
+            printf("}\n");
+        }
     }
     free(salida_def);
     free(asm_ruta);

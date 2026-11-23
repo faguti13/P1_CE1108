@@ -71,6 +71,8 @@ Nodo *nodo_llamada(const char *nombre, Nodo *argumentos);
 Nodo *nodo_bloque(Nodo *sentencias);
 Nodo *nodo_binario(const char *op, Nodo *izq, Nodo *der);
 Nodo *nodo_unario(const char *op, Nodo *expr);
+/* Hace: clona un subárbol AST; recibe: nodo y con_hermanos; genera: copia de hijos y opcionalmente hermanos. */
+Nodo *nodo_clonar(const Nodo *nodo, int con_hermanos);
 
 void nodo_imprimir(const Nodo *nodo, int nivel);
 /* JSON del arbol, para pegarlo en un visualizador (jsoncrack.com). */
