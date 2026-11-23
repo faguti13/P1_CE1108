@@ -1,6 +1,7 @@
 #!/bin/bash
 # e2e.sh <fuente.oly> [expect]   Compila con jaf y ejecuta en el RTL (Icarus Verilog).
 # Requiere VLIW_DIR (repo del procesador) y haber hecho `make -C $VLIW_DIR build/tb_top.vvp`.
+# JAFFLAGS agrega opciones al compilador (por ejemplo JAFFLAGS="-O2").
 set -e
 SRC="$1"
 VLIW_DIR="${VLIW_DIR:-../vliw_grupo2}"
@@ -9,7 +10,7 @@ NAME="$(basename "${SRC%.oly}")"
 OUT="${E2E_OUT:-build/e2e}"
 JAF="${JAF:-./build/jaf}"
 mkdir -p "$OUT"
-"$JAF" -s --mem "$SRC" -o "$OUT/$NAME.bin"
+"$JAF" $JAFFLAGS -s --mem "$SRC" -o "$OUT/$NAME.bin"
 python3 "$VLIW_DIR/tools/bin2mem.py" "$OUT/$NAME.bin" "$OUT/$NAME.mem"
 vvp -n "$VLIW_DIR/build/tb_top.vvp" +PROG="$OUT/$NAME.mem" +REGS="$OUT/$NAME.regs" +DUMP="$OUT/$NAME.dump" \
     +DUMPLO=65536 +DUMPHI=${DUMPHI:-69631} +TIMEOUT=${TIMEOUT:-5000000} > "$OUT/$NAME.log"

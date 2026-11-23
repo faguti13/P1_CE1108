@@ -1,0 +1,10 @@
+$ util.oly - Modulo intermedio: importa matematica y exporta una funcion y una global.
+#import "../../ejemplos/matematica.oly";
+#import "principal.oly";
+
+ent contador_util = 10;
+
+ent def util_suma_acotada(ent a, ent b) {
+    contador_util = contador_util + 1;
+    retorno (llamar mat_min(a + b, 100));
+}

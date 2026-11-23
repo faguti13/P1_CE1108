@@ -13,5 +13,5 @@ ent def fibonacci(ent n) {
 }
 
 vacio def main() {
-    resultado2 = llamar fibonacci(6);
+    resultado = llamar fibonacci(10);
 }

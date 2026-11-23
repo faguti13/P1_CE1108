@@ -1,0 +1,5 @@
+mem 0x10000 = 12    # contador_util: 10 (modulo util) + 1 (util_suma_acotada) + 1 (main)
+mem 0x10004 = 42    # r_abs = mat_abs(-42)
+mem 0x10008 = 81    # r_pot = mat_potencia(3, 4)
+mem 0x1000C = 12    # r_mcd = mat_mcd(84, 36)
+mem 0x10010 = 100   # r_suma = min(70 + 50, 100)

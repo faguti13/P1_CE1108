@@ -1,0 +1,5 @@
+$ modulo_con_error.oly - Modulo con un error semantico: el diagnostico debe citar
+$ este archivo y su linea, no el del programa que lo importa.
+ent def mal() {
+    retorno (no_existe + 1);
+}

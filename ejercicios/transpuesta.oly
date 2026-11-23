@@ -4,7 +4,7 @@ $ empiecen en 0x10008 (0x10000 = filas, 0x10004 = columnas).
 $   transpuesta = [[1, 4], [2, 5], [3, 6]]
 
 list ent transpuesta[3][2];
-list ent matriz = [[-1, -2, -3], [4, 5, 6]];
+list ent matriz = [[1, 2, 3], [4, 5, 6]];
 
 vacio def transponer_matriz(list ent m, ent filas, ent columnas, list ent t) {
     para (ent j = 0; j < columnas; j += 1) {

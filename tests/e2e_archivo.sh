@@ -1,19 +1,19 @@
 #!/bin/bash
 # e2e_archivo.sh [texto|imagen]  Compila ejercicios/cifrar_archivo.oly, lo ejecuta en el RTL sobre un
-# archivo real y compara el cifrado contra la referencia en C (feistel4_ref).
+# archivo real y compara el cifrado contra la referencia en C (feistel4_ref). JAFFLAGS: opciones de jaf.
 set -euo pipefail
 VLIW_DIR="${VLIW_DIR:-../vliw_grupo2}"
 JAF="${JAF:-./build/jaf}"
 B="${E2E_OUT:-build/e2e_archivo}"
 KEY=00112233445566778899aabbccddeeff
-ADDR=0x20000
+ADDR=0x4000
 mkdir -p "$B"
 make -s -C "$VLIW_DIR" build/tb_top.vvp build/feistel4_ref >/dev/null
 python3 - <<PY
 open("$B/original.bin","wb").write(("Compilador JAF -> VLIW Feistel4, CE1108 + CE4301. " * 6 + "fin\n").encode())
 PY
 SIZE=$(stat -c %s $B/original.bin); PAD=$(( (SIZE + 7) / 8 * 8 ))
-"$JAF" -s --mem ejercicios/cifrar_archivo.oly -o $B/cifrar.bin
+"$JAF" ${JAFFLAGS:-} -s --mem ejercicios/cifrar_archivo.oly -o $B/cifrar.bin
 python3 $VLIW_DIR/tools/bin2mem.py $B/cifrar.bin $B/cifrar.mem
 python3 $VLIW_DIR/tools/load_file.py --input $B/original.bin --output $B/datos.mem --address $ADDR >/dev/null
 vvp -n $VLIW_DIR/build/tb_top.vvp +PROG=$B/cifrar.mem +DATA=$B/datos.mem +DUMP=$B/dump.txt \

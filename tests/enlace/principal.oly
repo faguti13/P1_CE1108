@@ -1,0 +1,18 @@
+$ principal.oly - Enlazado de modulos: usa funciones y una global de dos modulos.
+$ util.oly a su vez importa matematica.oly (de ejemplos/) y principal tambien la
+$ importa: el enlazador la incluye una sola vez.
+#import "util.oly";
+#import "../../ejemplos/matematica";
+
+ent r_abs;
+ent r_pot;
+ent r_mcd;
+ent r_suma;
+
+vacio def main() {
+    r_abs = llamar mat_abs(0 - 42);
+    r_pot = llamar mat_potencia(3, 4);
+    r_mcd = llamar mat_mcd(84, 36);
+    r_suma = llamar util_suma_acotada(70, 50);
+    contador_util = contador_util + 1;
+}
