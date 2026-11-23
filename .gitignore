@@ -58,4 +58,4 @@ isa.md
 # Generados por flex, bison y make
 build/
 
-docs/
+docs/__pycache__/
