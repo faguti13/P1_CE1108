@@ -1,0 +1,17 @@
+$ fibonacci.oly - Fibonacci recursivo con dos llamadas dentro de la misma
+$ expresion (el resultado de la primera se derrama a la pila).
+$   resultado = fibonacci(10) = 55
+
+ent resultado = 0;
+ent resultado2 = 0;
+
+ent def fibonacci(ent n) {
+    si (n <= 1) {
+        retorno (n);
+    }
+    retorno (llamar fibonacci(n - 1) + llamar fibonacci(n - 2));
+}
+
+vacio def main() {
+    resultado2 = llamar fibonacci(6);
+}

@@ -37,6 +37,7 @@ typedef struct Simbolo {
     long offset;            /*Desplazamiento respecto de gp (globales) o fp (locales y parametros)*/
     int nivel;              /*Profundidad del ambito al que pertenece el simb(0 = global) */
     int linea, col;         /*Posicion de declaracion en cod fuente*/
+    const char *archivo;    /*Archivo de origen (modulo de #import o el principal)*/
     
     char *funcion;         /*Nombre de la funcion que contiene el simbolo
                             "(global) si el simbolo pertenece al ambito global"*/
@@ -72,7 +73,7 @@ extern Semantico sem; /*Instancia global del estado del analizador semantico*/
  * Se anotan los nodos con su tipo y simbolo, se asigna dir. de memoria.
  * Retorno de numero total de errores. */
 int sem_analizar(Nodo *raiz, const char *archivo); 
-void sem_imprimir_tabla(FILE *f);                  /*Imprime tabla de simbolo
+void sem_imprimir_tabla(FILE *f);                  /*Imprime tabla de simbolo*/
 const char *ty_nombre(int ty);                     /*De tipo interno a text*/
 int sem_const(const Nodo *n, long *valor);         /*Evalua una expr constante entera */
 

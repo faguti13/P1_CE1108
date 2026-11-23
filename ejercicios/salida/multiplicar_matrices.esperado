@@ -1,0 +1,6 @@
+mem 0x10000 = 2    # filas del resultado
+mem 0x10004 = 2    # columnas del resultado
+mem 0x10008 = 19   # r[0][0]
+mem 0x1000C = 22   # r[0][1]
+mem 0x10010 = 43   # r[1][0]
+mem 0x10014 = 50   # r[1][1]

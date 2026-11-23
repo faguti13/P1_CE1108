@@ -32,6 +32,7 @@ int yycol = 1;
 int yycol_token = 1;
 int traza_lexer = 0;
 int lexer_hubo_error = 0;
+int lexer_silencio_ide = 0;
 
 /* Bandera de error de sintaxis y nombre del fuente para los mensajes. */
 static int hubo_sintaxis = 0;
@@ -53,7 +54,9 @@ static void uso(const char *programa)
             "  -v           modo detallado: fases, estadisticas y comentarios descartados\n"
             "  --arbol      imprime el arbol sintactico y termina\n"
             "  --json       imprime el arbol en JSON y termina (jsoncrack.com)\n"
-            "  --ide        JSON para el prototipo de IDE (varios .oly; ver src/ide.c)\n"
+            "  --ide        JSON para el IDE: diagnosticos, fixes, sugerencias y clones (varios .oly)\n"
+            "  --ide-todo   JSON del IDE + simbolos, AST, IR, bundles y metricas (un .oly)\n"
+            "  --tabla-json imprime la tabla de simbolos en JSON\n"
             "  --tokens     igual que -t\n"
             "  -h           esta ayuda\n"
             "\n"
@@ -66,8 +69,9 @@ static void uso(const char *programa)
 void yyerror(const char *mensaje)
 {
     hubo_sintaxis = 1;
-    fprintf(stderr, "{ERROR 02}:%s:%d:%d:\"sintaxis: %s\"\n", archivo_actual, yylineno, yycol_token, mensaje);
-    ide_registrar_error(archivo_actual, yylineno, yycol_token, 2, mensaje, "Error");
+    const char *arch = ast_archivo ? ast_archivo : archivo_actual;
+    fprintf(stderr, "{ERROR 02}:%s:%d:%d:\"sintaxis: %s\"\n", arch, yylineno, yycol_token, mensaje);
+    ide_registrar_error(arch, yylineno, yycol_token, 2, mensaje, "Error");
 }
 
  /* Abre el archivo fuente como entrada del lexer y reinicia el estado de:
@@ -88,6 +92,7 @@ static int abrir(const char *ruta)
     lexer_hubo_error = 0;
     hubo_sintaxis = 0;
     ast_raiz = NULL;
+    ast_archivo = ruta;
     return 1;
 }
 
@@ -219,6 +224,17 @@ static int generar_salidas(Programa *p, const char *salida, int escribir_mem, in
     return 0;
 }
 
+/* -m imprime la tabla en texto; --tabla-json, en JSON (la misma que usa el IDE). */
+static void imprimir_tabla(int modo)
+{
+    if (modo == 2) {
+        ide_simbolos_json(stdout);
+        putchar('\n');
+    } else {
+        sem_imprimir_tabla(stdout);
+    }
+}
+
 /* Punto de entrada del compilador:
  -   lee las opciones y sus alias
  -   arma los nombres de salida (<fuente>.bin y <salida>.asm)
@@ -262,6 +278,10 @@ int main(int argc, char **argv)
             opt_ir = 1;
         } else if (!strcmp(a, "--cfg")) {
             opt_cfg = 1;
+        } else if (!strcmp(a, "--ide-todo")) {
+            opt_ide = 2;
+        } else if (!strcmp(a, "--tabla-json")) {
+            opt_tabla = 2;
         } else if (!strcmp(a, "-m")) {
             opt_tabla = 1;
         } else if (!strcmp(a, "-p")) {
@@ -293,6 +313,25 @@ int main(int argc, char **argv)
         } else {
             rutas[n_rutas++] = (char *)a;
         }
+    }
+    if (opt_ide == 2) {
+        Nodo *raiz = NULL;
+        if (n_rutas != 1) {
+            fprintf(stderr, "uso: %s --ide-todo <a.oly>\n", argv[0]);
+            return 2;
+        }
+        archivo_actual = rutas[0];
+        if (abrir(rutas[0])) {
+            estado = yyparse();
+            fclose(yyin);
+            yyin = NULL;
+            if (estado == 0 && !lexer_hubo_error && !hubo_sintaxis && ast_raiz) {
+                raiz = ast_raiz;
+            }
+        }
+        /* Sin tuberia optimizadora en esta version: solo la parte de P1.
+           Cuando entren -O0/-O1/-O2 (Integrante 4) se pasa aqui &oc. */
+        return ide_todo(raiz, rutas[0], NULL);
     }
     if (opt_ide) {
         if (n_rutas < 1) {
@@ -390,13 +429,13 @@ int main(int argc, char **argv)
     }
     if (sem_analizar(ast_raiz, ruta) > 0) {
         if (opt_tabla) {
-            sem_imprimir_tabla(stdout);
+            imprimir_tabla(opt_tabla);
         }
         fprintf(stderr, "%d error(es) semantico(s)\n", sem.errores);
         return 1;
     }
     if (opt_tabla) {
-        sem_imprimir_tabla(stdout);
+        imprimir_tabla(opt_tabla);
     }
 
     /* TAC y bloques basicos se generan desde el AST, antes del codigo VLIW.

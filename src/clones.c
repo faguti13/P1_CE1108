@@ -340,7 +340,9 @@ void clones_emitir_json(FILE *f, char **archivos, int n)
     }
 
     for (i = 0; i < n; i++) {
+        lexer_silencio_ide = 1;
         toks_por_arch[i] = tokenizar(archivos[i], &ntoks[i]);
+        lexer_silencio_ide = 0;
         units_por_arch[i] = segmentar(archivos[i], toks_por_arch[i],
                                       ntoks[i], &nunits[i]);
     }
