@@ -67,7 +67,7 @@ build/jaf: $(OBJS)
 # Lista de todos los .h. Si cambia cualquiera, se recompilan todos los .c
 # (incluyan o no ese .h): es simple y nunca deja un objeto desactualizado.
 HDRS = src/ast.h src/comun.h src/isa.h src/semantico.h src/codegen.h src/planificador.h \
-       src/emisor.h src/ensamblador.h src/tokens.h src/ide.h src/clones.h src/fixes.h src/ir_tac.h src/cfg.h
+       src/emisor.h src/ensamblador.h src/tokens.h src/ide.h src/clones.h src/fixes.h src/ir_tac.h src/cfg.h src/opt.h src/sim_ciclos.h src/linker.h
 
 # Regla genérica: cada src/X.c produce build/X.o y depende de todos los .h de HDRS.
 build/%.o: src/%.c $(HDRS) | build
