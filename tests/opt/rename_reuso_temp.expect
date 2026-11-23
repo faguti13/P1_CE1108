@@ -1,0 +1,18 @@
+# generado por tools/expect_p1.py con el generador de P1 (tests/opt/rename_reuso_temp.oly)
+mem 0x10000 = 0x00000008   # v.dim0
+mem 0x10004 = 0x00000001   # v.dim1
+mem 0x10008 = 0x00000001   # v[0]
+mem 0x1000C = 0x00000002   # v[1]
+mem 0x10010 = 0x00000003   # v[2]
+mem 0x10014 = 0x00000004   # v[3]
+mem 0x10018 = 0x00000005   # v[4]
+mem 0x1001C = 0x00000006   # v[5]
+mem 0x10020 = 0x00000007   # v[6]
+mem 0x10024 = 0x00000008   # v[7]
+mem 0x10028 = 0x00000004   # res.dim0
+mem 0x1002C = 0x00000001   # res.dim1
+mem 0x10030 = 0x00000009   # res[0]
+mem 0x10034 = 0x00000031   # res[1]
+mem 0x10038 = 0x00000079   # res[2]
+mem 0x1003C = 0x000000E1   # res[3]
+mem 0x10040 = 0x00000194   # total

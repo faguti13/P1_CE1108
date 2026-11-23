@@ -39,7 +39,8 @@ VLIW_DIR ?= ../vliw_grupo2
 # planificador, emisor del .asm y ensamblador propio (-x: de .asm a .bin).
 OBJS = build/main.o build/lexer.o build/parser.o build/ast.o build/tokens.o \
     build/isa.o build/semantico.o build/codegen.o build/planificador.o \
-    build/emisor.o build/ensamblador.o build/ide.o build/ide_todo.o build/clones.o build/fixes.o
+    build/emisor.o build/ensamblador.o build/ide.o build/clones.o build/fixes.o build/ir_tac.o build/cfg.o \
+    build/ide_todo.o build/fixes.o 
 
 # Fuente y carpeta de las vistas para el avance (make tabla, json, asm, bin, paquetes, vista).
 SRC   ?= ejercicios/ej1_factorial.oly
@@ -63,7 +64,7 @@ build/jaf: $(OBJS)
 # Lista de todos los .h. Si cambia cualquiera, se recompilan todos los .c
 # (incluyan o no ese .h): es simple y nunca deja un objeto desactualizado.
 HDRS = src/ast.h src/comun.h src/isa.h src/semantico.h src/codegen.h src/planificador.h \
-       src/emisor.h src/ensamblador.h src/tokens.h src/ide.h src/clones.h src/fixes.h
+       src/emisor.h src/ensamblador.h src/tokens.h src/ide.h src/clones.h src/fixes.h src/ir_tac.h src/cfg.h
 
 # Regla genérica: cada src/X.c produce build/X.o y depende de todos los .h de HDRS.
 build/%.o: src/%.c $(HDRS) | build
@@ -209,3 +210,10 @@ DOCS = docs/01_arquitectura.md docs/02_lenguaje.md docs/03_algoritmos.md docs/04
 pdf:
 	python3 tests/gen_04_ejemplos.py
 	python3 docs/md2pdf.py docs/JAF-compilador.pdf "Compilador JAF para Feistel4-VLIW" $(DOCS)
+
+
+# Prueba de TAC y bloques basicos sin necesitar flex/bison.
+.PHONY: test-ir
+test-ir:
+	$(CC) $(CFLAGS) tests/ir/test_tac.c src/ir_tac.c src/cfg.c -o /tmp/jaf_test_ir
+	/tmp/jaf_test_ir

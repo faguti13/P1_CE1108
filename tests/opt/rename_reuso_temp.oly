@@ -1,0 +1,27 @@
+$ Prueba: verifica renombrado de virtuales; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ rename_reuso_temp.oly - Las mismas dos variables se reutilizan en calculos
+$ independientes dentro de un bloque: sin renombrar, cada calculo espera al anterior.
+$   res = [9, 49, 121, 225], total = 404
+
+list ent v = [1, 2, 3, 4, 5, 6, 7, 8];
+list ent res[4];
+ent total = 0;
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent t = 0;
+    ent u = 0;
+    t = v[0] + v[1];
+    u = t * t;
+    res[0] = u;
+    t = v[2] + v[3];
+    u = t * t;
+    res[1] = u;
+    t = v[4] + v[5];
+    u = t * t;
+    res[2] = u;
+    t = v[6] + v[7];
+    u = t * t;
+    res[3] = u;
+    total = res[0] + res[1] + res[2] + res[3];
+}

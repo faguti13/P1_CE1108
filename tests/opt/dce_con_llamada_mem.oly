@@ -1,0 +1,23 @@
+$ Prueba: verifica eliminacion de codigo muerto; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ dce_con_llamada_mem.oly - Llamadas cuyo valor no se usa y escrituras crudas a
+$ memoria: --dce no puede quitarlas porque tienen efectos.
+$   contador = 2, leido = 1234, M[0x0F00] = 1234
+
+ent contador = 0;
+ent leido = 0;
+
+$ Hace: actualiza el estado y devuelve el nuevo valor; recibe: sin parametros; genera: valor calculado.
+ent def incrementa() {
+    contador += 1;
+    retorno (contador);
+}
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent ignorado = llamar incrementa();
+    ent y = 0;
+    llamar incrementa();
+    llamar escribir_mem(0x0F00, 1234);
+    leido = llamar leer_mem(0x0F00);
+    y = llamar leer_mem(0x0F04);
+}

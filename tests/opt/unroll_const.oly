@@ -1,0 +1,26 @@
+$ Prueba: verifica desenrollado de bucles; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ unroll_const.oly - Lazos con N = 16 constante (unroll parcial K=4 sin epilogo)
+$ y un lazo de 6 vueltas que --unroll=auto aplana por completo.
+$   suma = sum(3i + 1, i = 0..15) = 376
+$   prod = 2^6 = 64
+
+list ent a[16];
+ent suma = 0;
+ent prod = 0;
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent s = 0;
+    ent p = 1;
+    para (ent i = 0; i < 16; i += 1) {
+        a[i] = i * 3 + 1;
+    }
+    para (ent j = 0; j < 16; j += 1) {
+        s += a[j];
+    }
+    para (ent k = 1; k <= 6; k += 1) {
+        p = p * 2;
+    }
+    suma = s;
+    prod = p;
+}

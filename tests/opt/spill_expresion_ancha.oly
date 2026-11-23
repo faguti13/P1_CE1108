@@ -1,0 +1,33 @@
+$ Prueba: verifica derrame de registros; recibe: entradas y constantes del caso; genera: los resultados para comparar con .expect.
+$ spill_expresion_ancha.oly - 20 variables vivas a la vez (mas que r8..r23):
+$ el barrido lineal derrama las de vida mas larga al marco.
+$   prod = sum((k)(21-k), k = 1..10) = 770, todas = 210
+
+ent prod = 0;
+ent todas = 0;
+
+$ Hace: ejecuta y verifica el escenario de prueba; recibe: sin parametros; genera: cambios en variables de prueba.
+vacio def main() {
+    ent v0 = 1;
+    ent v1 = 2;
+    ent v2 = 3;
+    ent v3 = 4;
+    ent v4 = 5;
+    ent v5 = 6;
+    ent v6 = 7;
+    ent v7 = 8;
+    ent v8 = 9;
+    ent v9 = 10;
+    ent v10 = 11;
+    ent v11 = 12;
+    ent v12 = 13;
+    ent v13 = 14;
+    ent v14 = 15;
+    ent v15 = 16;
+    ent v16 = 17;
+    ent v17 = 18;
+    ent v18 = 19;
+    ent v19 = 20;
+    prod = v0 * v19 + v1 * v18 + v2 * v17 + v3 * v16 + v4 * v15 + v5 * v14 + v6 * v13 + v7 * v12 + v8 * v11 + v9 * v10;
+    todas = v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19;
+}

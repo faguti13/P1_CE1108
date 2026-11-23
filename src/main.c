@@ -7,6 +7,8 @@
  * Con -x la entrada es un .asm: se ensambla y se salta directo a la resolución
  *   y la codificación.
  */
+#include "ir_tac.h"
+#include "cfg.h"
 #include "ast.h"
 #include "codegen.h"
 #include "emisor.h"
@@ -249,6 +251,7 @@ int main(int argc, char **argv)
     const char *salida = NULL;
     int opt_tokens = 0, opt_arbol = 0, opt_json = 0, opt_tabla = 0, opt_paquetes = 0, opt_asm = 0;
     int opt_x = 0, opt_mem = 0, opt_ide = 0, verboso = 0;
+    int opt_ir = 0, opt_cfg = 0;
     char *salida_def = NULL;
     char *asm_ruta = NULL;
     char *rutas[32];
@@ -271,6 +274,10 @@ int main(int argc, char **argv)
             opt_json = 1;
         } else if (!strcmp(a, "--ide")) {
             opt_ide = 1;
+        } else if (!strcmp(a, "--ir") || !strcmp(a, "-i")) {
+            opt_ir = 1;
+        } else if (!strcmp(a, "--cfg")) {
+            opt_cfg = 1;
         } else if (!strcmp(a, "--ide-todo")) {
             opt_ide = 2;
         } else if (!strcmp(a, "--tabla-json")) {
@@ -429,6 +436,25 @@ int main(int argc, char **argv)
     }
     if (opt_tabla) {
         imprimir_tabla(opt_tabla);
+    }
+
+    /* TAC y bloques basicos se generan desde el AST, antes del codigo VLIW.
+       POr ahora se conserva el generador de P1 para no cambiar el binario. */
+    if (opt_ir || opt_cfg) {
+        CodigoTac tac;
+        tac_generar(ast_raiz, &tac);
+        if (opt_ir) {
+            printf("=== Codigo intermedio (TAC) ===\n");
+            tac_imprimir(&tac, stdout);
+        }
+        if (opt_cfg) {
+            GrafoFlujo grafo;
+            cfg_construir(&tac, &grafo);
+            printf("=== Bloques basicos y CFG ===\n");
+            cfg_imprimir(&tac, &grafo, stdout);
+            cfg_liberar(&grafo);
+        }
+        tac_liberar(&tac);
     }
 
     /* ---- fases 4 a 6: código, planificación, codificación ---- */
